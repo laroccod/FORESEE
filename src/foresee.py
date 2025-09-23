@@ -7,11 +7,10 @@ import random
 import time
 import types
 try:
-    from skhep.math.vectors import Vector3D
+    from skhep.math.vectors import LorentzVector, Vector3D
     _OLD_SKHEP = True
 except:
     import vector
-    from vector import Vector3D
     _OLD_SKHEP = False    
 from scipy import interpolate
 from matplotlib import gridspec
@@ -20,9 +19,76 @@ from particle import Particle
 
 ##############################################
 ##############################################
-#  MyLorentzVector Class for skhep backwards compatibility
+#  Classes for skhep backwards compatibility
 ##############################################
 ##############################################
+
+class MyVector3D:
+    def __init__(self, x, y, z):
+        if _OLD_SKHEP:
+            self._vec = _Vector3D(x, y, z)
+        else:
+            self._vec = vector.obj(x=x, y=y, z=z)
+
+    @classmethod
+    def from_internal(cls, v):
+        obj = cls.__new__(cls)
+        obj._vec = v
+        return obj
+
+    # Unify attribute/method conventions in a generalized way
+    def __getattr__(self, name):
+        attr = getattr(self._vec, name)
+        # N.B. wrapper only intended for replacing argless functions with attributes,
+        #      do not use autocall for methods requiring arguments
+        _SAFE_AUTOCALL = {"x","y","z"}
+        # Some versions have attributes as callables. Should act like a property instead.
+        if callable(attr) and name in _SAFE_AUTOCALL:
+            return attr() # Autocall old argless methods, e.g. "mass()"
+        return attr  #Return directly as attribute when using new scikit-hep
+            
+    # Math operations
+    def __add__(self, other):
+        return MyVector3D.from_internal(self._vec + other._vec)
+
+    def __sub__(self, other):
+        return MyVector3D.from_internal(self._vec - other._vec)
+
+    def __mul__(self, scalar):
+        return MyVector3D.from_internal(self._vec * scalar)
+
+    def __rmul__(self, scalar):
+        return self.__mul__(scalar)
+
+    def cross(self, vec):
+        if _OLD_SKHEP:
+            thisvec = Vector3D(self.x, self.y, self.z)
+            thatvec = Vector3D( vec.x,  vec.y,  vec.z)
+        else:
+            thisvec = vector.obj(x=self.x, y=self.y, z=self.z)
+            thatvec = vector.obj(x= vec.x, y= vec.y, z= vec.z)
+        xproduct = thisvec.cross(thatvec)
+        return MyVector3D(xproduct.x,xproduct.y,xproduct.z) 
+
+    def angle(self, vec):
+        if _OLD_SKHEP:
+            thisvec = Vector3D(self.x, self.y, self.z)
+            thatvec = Vector3D( vec.x,  vec.y,  vec.z)
+            return thisvec.angle(thatvec)
+        else:
+            thisvec = vector.obj(x=self.x, y=self.y, z=self.z)
+            thatvec = vector.obj(x= vec.x, y= vec.y, z= vec.z)
+            return thisvec.deltaangle(thatvec)
+
+    def rotate(self,angle,axis):
+        if _OLD_SKHEP:
+            return self._vec.rotate(angle,axis)  #TODO check if a new object should be returned vs manipulate this object
+        else:
+            thisvec = vector.obj(x=self.x, y=self.y, z=self.z)
+            axisvec = vector.obj(x=axis.x, y=axis.y, z=axis.z)
+            ret = thisvec.rotate_axis(axis=axisvec,angle=angle)
+            return MyVector3D(ret.x,ret.y,ret.z)  #TODO check if a new object should be returned vs manipulate this object
+            
 
 class MyLorentzVector:
     def __init__(self, px, py, pz, E):
@@ -30,15 +96,37 @@ class MyLorentzVector:
             self._vec = _LorentzVector(px, py, pz, E)
         else:
             self._vec = vector.obj(px=px, py=py, pz=pz, E=E)
-            
-    def __add__(self, other):
-        return MyLorentzVector.from_internal(self._vec + other._vec)
 
     @classmethod
     def from_internal(cls, v):
         obj = cls.__new__(cls)
         obj._vec = v
         return obj
+            
+    # Math operations
+    def __add__(self, other):
+        return MyLorentzVector.from_internal(self._vec + other._vec)
+
+    def __sub__(self, other):
+        return MyLorentzVector.from_internal(self._vec - other._vec)
+
+    def __mul__(self, scalar):
+        return MyLorentzVector.from_internal(self._vec * scalar)
+
+    def __rmul__(self, scalar):
+        return self.__mul__(scalar)
+
+    # Previous LorentzVector.vector returned a 3-momentum, not the whole 4-vector
+    @property
+    def vector(self):
+        #TODO check if sth else is required for _OLD_SKHEP
+        return MyVector3D(x=self._vec.px, y=self._vec.py, z=self._vec.pz)
+    
+    # Previous LorentzVector.vector could also return a 3-vector useful for boosts
+    @property
+    def boostvector(self):
+        #TODO check if sth else is required for _OLD_SKHEP
+        return MyLorentzVector(px=self._vec.px/self._vec.E, py=self._vec.py/self._vec.E, pz=self._vec.pz/self._vec.E, E=1.)
 
     # Different scikit-hep versions use e.g. .mass() vs .mass for various properties. 
     # Unify attribute/method conventions in a generalized way
@@ -54,6 +142,26 @@ class MyLorentzVector:
         if callable(attr) and name in _SAFE_AUTOCALL:
             return attr() # Autocall old argless methods, e.g. "mass()"
         return attr  #Return directly as attribute when using new scikit-hep
+
+    # Rotate the spatial components of a 4-vector
+    def rotate(self,angle,axis):
+        if _OLD_SKHEP:
+            return self._vec.rotate(angle,axis)  #TODO check if a new object should be returned vs manipulate this object
+        else:
+            vec3D  = MyVector3D(self.x,self.y,self.z)
+            axis3D = MyVector3D(axis.x,axis.y,axis.z)
+            vec3D.rotate(axis=axis3D,angle=angle)
+            return MyLorentzVector(vec3D.x,vec3D.y,vec3D.z,self.E)  #TODO check if a new object should be returned vs manipulate this object
+
+    #FIXME rm if unnecessary
+    ## Lorentz boost
+    #def boost(self,boostvector):
+    #    if _OLD_SKHEP:
+    #        boostvectmp = LorentzVector(boostvector.x,boostvector.y,boostvector.z,boostvector.E)
+    #        return self._vec.boost(boostvectmp)
+    #    else:
+    #        boostvectmp = vector.obj(boostvector.x,boostvector.y,boostvector.z,boostvector.E)
+    #        return self.vector.boost(boostvectmp)  #TODO check if a new object should be returned vs manipulate this object
 
 ##############################################
 ##############################################
@@ -992,7 +1100,7 @@ class Decay():
         """
 
         #get axis of p0
-        zaxis=Vector3D(0,0,1)
+        zaxis=MyVector3D(0,0,1)
         rotaxis=zaxis.cross(p0.vector).unit()
         rotangle=zaxis.angle(p0.vector)
 
@@ -1078,7 +1186,7 @@ class Decay():
             break
 
         #randomly rotation of p2, p3 around p1
-        xaxis=Vector3D(1,0,0)
+        xaxis=MyVector3D(1,0,0)
         phi = self.rng.uniform(-math.pi,math.pi)
         p1=p1.rotate(phi,xaxis)
         p2=p2.rotate(phi,xaxis)
@@ -1088,7 +1196,7 @@ class Decay():
         phi = self.rng.uniform(-math.pi,math.pi)
         costh = self.rng.uniform(-1,1)
         theta = np.arccos(costh)
-        axis=Vector3D(np.cos(phi)*np.sin(theta),np.sin(phi)*np.sin(theta),np.cos(theta))
+        axis=MyVector3D(np.cos(phi)*np.sin(theta),np.sin(phi)*np.sin(theta),np.cos(theta))
         rotaxis=axis.cross(p1.vector).unit()
         rotangle=axis.angle(p1.vector)
         p1=p1.rotate(rotangle,rotaxis)
@@ -1854,10 +1962,10 @@ class Foresee(Utility, Decay):
             The result as a bool
         """
         # obtain 3-momentum
-        p=Vector3D(momentum.px,momentum.py,momentum.pz)
+        p=MyVector3D(momentum.px,momentum.py,momentum.pz)
         # get position of
         x=float(self.distance/p.z)*p
-        if type(x) is np.ndarray: x=Vector3D(x[0],x[1],x[2])
+        if type(x) is np.ndarray: x=MyVector3D(x[0],x[1],x[2])
         # check if it passes
         if eval(self.selection): return True
         else:return False
@@ -1938,7 +2046,8 @@ class Foresee(Utility, Decay):
             cfacs = np.array([model.get_production_scaling(key, mass, coupling, coup_ref) for coupling in couplings])
 
             # filter events that pass selection
-            momenta =np.array(momenta)
+            try: momenta=np.array(momenta)
+            except: momenta=np.array([[momentum.px,momentum.py,momentum.pz,momentum.E] for momentum in momenta]) 
             position = [ [self.distance/p[2]*p[0], self.distance/p[2]*p[1], self.distance] for p in momenta]
             filtered = [(p, w) for p,x,w in zip(momenta, position, weights) if self.numbafunc_selection(x[0],x[1],x[2],p[0],p[1],p[2])]
             if not filtered: continue

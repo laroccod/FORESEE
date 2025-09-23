@@ -6,7 +6,13 @@ import math
 import random
 import time
 import types
-from skhep.math.vectors import LorentzVector, Vector3D
+try:
+    from skhep.math.vectors import Vector3D
+    _OLD_SKHEP = True
+except:
+    import vector
+    from vector import Vector3D
+    _OLD_SKHEP = False    
 from scipy import interpolate
 from matplotlib import gridspec
 from numba import jit
@@ -14,7 +20,44 @@ from particle import Particle
 
 ##############################################
 ##############################################
-#  Utilitiy Class
+#  MyLorentzVector Class for skhep backwards compatibility
+##############################################
+##############################################
+
+class MyLorentzVector:
+    def __init__(self, px, py, pz, E):
+        if _OLD_SKHEP:
+            self._vec = _LorentzVector(px, py, pz, E)
+        else:
+            self._vec = vector.obj(px=px, py=py, pz=pz, E=E)
+            
+    def __add__(self, other):
+        return MyLorentzVector.from_internal(self._vec + other._vec)
+
+    @classmethod
+    def from_internal(cls, v):
+        obj = cls.__new__(cls)
+        obj._vec = v
+        return obj
+
+    # Different scikit-hep versions use e.g. .mass() vs .mass for various properties. 
+    # Unify attribute/method conventions in a generalized way
+    def __getattr__(self, name):
+        # In new scikit-hep versions, the object is already equivalent to previous .vector return value
+        if not _OLD_SKHEP and name == "vector":
+            return self
+        attr = getattr(self._vec, name)
+        # N.B. wrapper only intended for replacing argless functions with attributes,
+        #      do not use autocall for methods requiring arguments
+        _SAFE_AUTOCALL = {"mass","mt","px","py","pz","pt","eta","phi","rapidity","theta","e","t","p"}
+        # Some versions have attributes as callables. Should act like a property instead.
+        if callable(attr) and name in _SAFE_AUTOCALL:
+            return attr() # Autocall old argless methods, e.g. "mass()"
+        return attr  #Return directly as attribute when using new scikit-hep
+
+##############################################
+##############################################
+#  Utility Class
 ##############################################
 ##############################################
 
@@ -263,7 +306,7 @@ class Utility():
 
         Returns
         -------
-            Particles as LorentzVectors and an array of weights
+            Particles as MyLorentzVectors and an array of weights
         """
         #read file
         list_logth, list_logp, list_xs = self.read_list_momenta_weights(filenames=filenames, filetype=filetype, extend_to_low_pt_scale=None)
@@ -292,7 +335,7 @@ class Utility():
                 pt = p_sm*np.sin(th_sm)
                 px = pt*np.cos(phi)
                 py = pt*np.sin(phi)
-                part=LorentzVector(px,py,pz,en)
+                part=MyLorentzVector(px,py,pz,en)
 
                 particles.append(part)
                 weights.append([w/float(nsample) for w in xs])
@@ -397,7 +440,7 @@ class Utility():
 
         Parameters
         ----------
-        momenta: [LorentzVector] / ndarray of length 4 or 2
+        momenta: [MyLorentzVector] / ndarray of length 4 or 2
             List of 4-momenta
         weights: numpy array of floats
             Weights for each entry in the histo
@@ -419,7 +462,7 @@ class Utility():
         """
 
         #preprocess data
-        if type(momenta[0])==LorentzVector:
+        if type(momenta[0])==MyLorentzVector:
             tx = np.array([np.arctan(mom.pt/mom.pz) for mom in momenta])
             px = np.array([mom.p for mom in momenta])
         elif type(momenta) == np.ndarray and len(momenta[0]) == 4:
@@ -928,7 +971,7 @@ class Decay():
 
         Parameters
         ----------
-        p0: LorentzVector
+        p0: MyLorentzVector
             Initial state particle 4-momentum
         m0: float
             Mass of the incoming particle
@@ -945,7 +988,7 @@ class Decay():
 
         Returns
         -------
-            Boosted p1,p2 as LorentzVectors
+            Boosted p1,p2 as MyLorentzVectors
         """
 
         #get axis of p0
@@ -964,14 +1007,14 @@ class Decay():
         pz1 = momentum1 * costheta
         py1 = momentum1 * math.sqrt(1.-costheta*costheta) * np.sin(phi)
         px1 = momentum1 * math.sqrt(1.-costheta*costheta) * np.cos(phi)
-        p1=LorentzVector(-px1,-py1,-pz1,en1)
+        p1=MyLorentzVector(-px1,-py1,-pz1,en1)
         if rotangle!=0: p1=p1.rotate(rotangle,rotaxis)
 
         en2 = energy2
         pz2 = momentum2 * costheta
         py2 = momentum2 * math.sqrt(1.-costheta*costheta) * np.sin(phi)
         px2 = momentum2 * math.sqrt(1.-costheta*costheta) * np.cos(phi)
-        p2=LorentzVector(px2,py2,pz2,en2)
+        p2=MyLorentzVector(px2,py2,pz2,en2)
         if rotangle!=0: p2=p2.rotate(rotangle,rotaxis)
 
         #boost p2 in p0 restframe
@@ -986,7 +1029,7 @@ class Decay():
 
         Parameters
         ----------
-        p0: LorentzVector
+        p0: MyLorentzVector
             Initial state particle 4-momentum
         m0: float
             Initial state particle mass
@@ -998,7 +1041,7 @@ class Decay():
             Third final state particle mass
         Returns
         -------
-            Boosted p1,p2,p3 as LorentzVectors
+            Boosted p1,p2,p3 as MyLorentzVectors
         """
 
         p1, p2, p3 = None, None, None
@@ -1029,9 +1072,9 @@ class Decay():
             sinth23 =  np.sqrt(1-costh23**2)
 
             #construct momenta
-            p1 = LorentzVector(mom1,0,0,e1)
-            p2 = LorentzVector(mom2*costh12, mom2*sinth12,0,e2)
-            p3 = LorentzVector(mom3*costh13,-mom3*sinth13,0,e3)
+            p1 = MyLorentzVector(mom1,0,0,e1)
+            p2 = MyLorentzVector(mom2*costh12, mom2*sinth12,0,e2)
+            p3 = MyLorentzVector(mom3*costh13,-mom3*sinth13,0,e3)
             break
 
         #randomly rotation of p2, p3 around p1
@@ -1088,7 +1131,7 @@ class Decay():
         particles, weights = [], []
 
         #create parent 4-vector
-        p_mother=LorentzVector(0,0,0,m0)
+        p_mother=MyLorentzVector(0,0,0,m0)
 
         #MC sampling of angles
         for i in range(nsample):
@@ -1125,7 +1168,7 @@ class Decay():
 
         Returns
         -------
-            List of LLP momenta as LorentzVectors and a list of weights
+            List of LLP momenta as MyLorentzVectors and a list of weights
         """
 
         if integration == "dq2dcosth":
@@ -1137,7 +1180,7 @@ class Decay():
         if integration == "chain_decay":
             mass = m3
             mI = eval(br[1])
-            if (m0 <= m1+mI) or (mI<m2+m3): return [LorentzVector(0,0,0,m0)], [0]
+            if (m0 <= m1+mI) or (mI<m2+m3): return [MyLorentzVector(0,0,0,m0)], [0]
             return self.decay_in_restframe_3body_chain(eval(br[0]), coupling, m0, m1, m2, m3, mI, nsample)
 
     def decay_in_restframe_3body_dq2dcosth(self,br, coupling, m0, m1, m2, m3, nsample):
@@ -1169,7 +1212,7 @@ class Decay():
         particles, weights = [], []
 
         #create parent 4-vector
-        p_mother=LorentzVector(0,0,0,m0)
+        p_mother=MyLorentzVector(0,0,0,m0)
 
         #integration boundary
         q2min,q2max = (m2+m3)**2,(m0-m1)**2
@@ -1260,7 +1303,7 @@ class Decay():
             sinth = np.sqrt(1-costh**2)
             phi = random.uniform(-math.pi,math.pi)
             p = np.sqrt(energy**2-mass**2)
-            p_3 = LorentzVector(p*sinth*np.cos(phi),p*sinth*np.sin(phi),p*costh,energy)
+            p_3 = MyLorentzVector(p*sinth*np.cos(phi),p*sinth*np.sin(phi),p*costh,energy)
 
             #branching fraction
             brval  = eval(br)
@@ -1317,7 +1360,7 @@ class Decay():
             sinth = np.sqrt(1-costh**2)
             phi = random.uniform(-math.pi,math.pi)
             p = np.sqrt(energy**2-mass**2)
-            p_3 = LorentzVector(p*sinth*np.cos(phi),p*sinth*np.sin(phi),p*costh,energy)
+            p_3 = MyLorentzVector(p*sinth*np.cos(phi),p*sinth*np.sin(phi),p*costh,energy)
 
             #branching fraction
             brval  = eval(br)
@@ -1361,7 +1404,7 @@ class Decay():
         particles, weights = [], []
 
         # create parent 4-vector
-        p_mother=LorentzVector(0,0,0,m0)
+        p_mother=MyLorentzVector(0,0,0,m0)
 
         # numerical integration
         for i in range(nsample):
@@ -1424,7 +1467,7 @@ class Foresee(Utility, Decay):
         ----------
         pid: str, int
             Particle PDG ID
-        momentum: LorentzVector
+        momentum: MyLorentzVector
             Particle 4-momentum
         Returns
         -------
@@ -1486,7 +1529,7 @@ class Foresee(Utility, Decay):
             if b2 > 0.0: gamma2 = (gamma - 1.0) / b2
             else: gamma2 = 0.0
 
-            # Loop over LorentzVectors
+            # Loop over MyLorentzVectors
             for xx, xy, xz, xt in arr_particle:
 
                 bp = bx * xx + by * xy + bz * xz
@@ -1804,7 +1847,7 @@ class Foresee(Utility, Decay):
 
         Parameters
         ----------
-        momentum: LorentzVector
+        momentum: MyLorentzVector
             The momentum vector to compare against the selection criteria specified for Foresee
         Returns
         -------
@@ -1874,7 +1917,7 @@ class Foresee(Utility, Decay):
         else: brs = np.array([sum([model.get_br(channel, mass, coupling) for channel in self.channels]) for coupling in couplings])
         
         # setup output arrays
-        output_p, output_w = [LorentzVector(0,0,0,0)], [np.array([[0 for _ in range(nprods)] for _ in couplings])]
+        output_p, output_w = [MyLorentzVector(0,0,0,0)], [np.array([[0 for _ in range(nprods)] for _ in couplings])]
 
         # loop over production modes
         for key in modes.keys():
@@ -1911,7 +1954,7 @@ class Foresee(Utility, Decay):
                 wgts = np.outer(cfacs * prob_decays * brs,w)
                 output_w.append(wgts)
 
-            output_p += [LorentzVector(p[0],p[1],p[2],p[3]) for p in momenta]
+            output_p += [MyLorentzVector(p[0],p[1],p[2],p[3]) for p in momenta]
 
         # prepare results directory
         # TODO: THIS SHOULD NOT BE HERE
@@ -1967,7 +2010,7 @@ class Foresee(Utility, Decay):
         for key in modes.keys(): modes[key] += [modes[key][0]] * (nprods - len(modes[key]))
 
         # setup output arrays
-        output_p, output_w = [LorentzVector(0,0,0,0)], [np.array([[0 for _ in range(nprods)] for _ in couplings])]
+        output_p, output_w = [MyLorentzVector(0,0,0,0)], [np.array([[0 for _ in range(nprods)] for _ in couplings])]
 
         # unit conversion
         GeV2_in_invmeter2 = (5e15)**2
@@ -2009,7 +2052,7 @@ class Foresee(Utility, Decay):
                 wgts = np.outer(cfacs * prob_int, w)
                 output_w.append(wgts)
 
-            output_p += [LorentzVector(p[0],p[1],p[2],p[3]) for p in momenta]
+            output_p += [MyLorentzVector(p[0],p[1],p[2],p[3]) for p in momenta]
 
         return couplings, sum(output_w), output_p, np.transpose(np.array(output_w), (1, 0, 2))
 
@@ -2024,14 +2067,14 @@ class Foresee(Utility, Decay):
 
         Parameters
         ----------
-        momentum: LorentzVector
+        momentum: MyLorentzVector
             Initial state particle 4-momentum
         pids: [str] / [int]
             Final state particle PDG IDs
 
         Returns
         -------
-            Lists of final state particle PDG IDs and momenta as LorentzVectors
+            Lists of final state particle PDG IDs and momenta as MyLorentzVectors
         """
 
         # unspecified decays - can't do anything
@@ -2039,7 +2082,7 @@ class Foresee(Utility, Decay):
             return None, []
         # 1-body decays
         elif len(pids)==1:
-            p1 = LorentzVector(momentum.x,momentum.y,momentum.z,np.sqrt(momentum.p**2 + self.masses(str(pids[0]))**2 ) )
+            p1 = MyLorentzVector(momentum.x,momentum.y,momentum.z,np.sqrt(momentum.p**2 + self.masses(str(pids[0]))**2 ) )
             return pids, [p1]
         # 2-body decays
         elif len(pids)==2:
@@ -2064,7 +2107,7 @@ class Foresee(Utility, Decay):
 
         Parameters
         ----------
-        data: [[float, LorentzVector, LorentzVector, [str] or [int], [LorentzVector]]
+        data: [[float, MyLorentzVector, MyLorentzVector, [str] or [int], [MyLorentzVector]]
             A table of events, with each event entry specified in terms of
             weights, position, momentum, pids and finalstate particle momenta
         filename: str
@@ -2139,7 +2182,7 @@ class Foresee(Utility, Decay):
 
         Parameters
         ----------
-        data: [[float, LorentzVector, LorentzVector, [str] or [int], [LorentzVector]]
+        data: [[float, MyLorentzVector, MyLorentzVector, [str] or [int], [MyLorentzVector]]
             A table of events, with each event entry specified in terms of
             weights, position, momentum, pids and finalstate particle momenta
         filename: str
@@ -2262,8 +2305,8 @@ class Foresee(Utility, Decay):
             posx = thetax*self.distance
             posy = thetay*self.distance
             post = posz + t0
-            if notime: position = LorentzVector(posx,posy,posz+zfront,0)
-            else     : position = LorentzVector(posx,posy,posz+zfront,post)
+            if notime: position = MyLorentzVector(posx,posy,posz+zfront,0)
+            else     : position = MyLorentzVector(posx,posy,posz+zfront,post)
             # decay
             pids, finalstate = self.decay_llp(momentum, pids)
             # save

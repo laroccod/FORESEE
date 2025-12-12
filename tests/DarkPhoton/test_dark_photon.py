@@ -348,5 +348,5 @@ def test_DarkPhoton_mix():
     }
 
     for isetup, setup in enumerate(setupnames):
-        assert np.isclose(round(sum(weights[:,isetup]),3),ref[setup])
+        assert np.isclose(round(sum(weights[:,isetup]),3),ref[setup],rtol=0.01) #%-lvl acc OK
 

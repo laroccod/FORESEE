@@ -10,7 +10,8 @@ try:
     from skhep.math.vectors import LorentzVector, Vector3D
     _OLD_SKHEP = True
 except:
-    from vector import VectorObject3D,VectorObject4D
+    #from vector import VectorObject3D,VectorObject4D
+    from vector import MomentumObject3D,MomentumObject4D
     _OLD_SKHEP = False    
 from scipy import interpolate
 from matplotlib import gridspec
@@ -25,25 +26,14 @@ from particle import Particle
 
 if not _OLD_SKHEP:
 
-
-    class Vector3D(VectorObject3D):
+    class Vector3D(MomentumObject3D):
         def __init__(self, x, y, z):
             super().__init__(x=x,y=y,z=z)
 
+        #Angle between this 3-vector and another. Undefined if a vector is (0,0,0), default to 0
         def angle(self, vec):
-            return self.deltaangle(VectorObject3D(x=vec.x, y=vec.y, z=vec.z))
-
-        @property
-        def px(self):
-            return self.x
-
-        @property
-        def py(self):
-            return self.y
-
-        @property
-        def pz(self):
-            return self.z
+            ret = self.deltaangle(MomentumObject3D(x=vec.x, y=vec.y, z=vec.z))
+            return ret if not math.isnan(ret) else 0.
 
         #Override superclass function return value types
 
@@ -60,43 +50,11 @@ if not _OLD_SKHEP:
             return Vector3D(x=superobj.x,y=superobj.y,z=superobj.z)
 
 
-    class LorentzVector(VectorObject4D):
+    class LorentzVector(MomentumObject4D):
         
         def __init__(self, px, py, pz, e):
             super().__init__(x=px,y=py,z=pz,t=e)
-        
-        @property
-        def m(self):
-            return self.t**2 - self.x**2 - self.y**2 - self.z**2
-        
-        @property
-        def px(self):
-            return self.x
-
-        @property
-        def py(self):
-            return self.y
-
-        @property
-        def pz(self):
-            return self.z
-
-        @property
-        def E(self):
-            return self.t
-
-        @property
-        def e(self):
-            return self.t
-
-        @property
-        def pt(self):
-            return np.sqrt(self.x**2 + self.y**2)
-
-        @property
-        def p(self):
-            return np.sqrt(self.x**2 + self.y**2 + self.z**2)
-        
+                
         #Previous LorentzVector.vector returned a 3-momentum, not the whole 4-vector
         @property
         def vector(self):
@@ -120,7 +78,7 @@ if not _OLD_SKHEP:
 
         #For overriding superclass function return value types
         def boost(self,vec3D):
-            superobj = super().boost(VectorObject4D(x=vec3D.x,y=vec3D.y,z=vec3D.z,t=1.))
+            superobj = super().boost(MomentumObject4D(x=vec3D.x,y=vec3D.y,z=vec3D.z,t=1.))
             return LorentzVector(px=superobj.x,py=superobj.y,pz=superobj.z,e=superobj.t)
         
     
@@ -1104,18 +1062,14 @@ class Decay():
         py1 = momentum1 * math.sqrt(1.-costheta*costheta) * np.sin(phi)
         px1 = momentum1 * math.sqrt(1.-costheta*costheta) * np.cos(phi)
         p1=LorentzVector(-px1,-py1,-pz1,en1)
-        print('\n *** DEBUG twobody_decay p1 before ***\n',p1)
-        if rotangle!=0: p1=p1.rotate(rotangle,rotaxis)  #FIXME this makes p1 x,y,z nan
-        print('\n *** DEBUG twobody_decay p1 after ***\n',p1)
+        if rotangle!=0: p1=p1.rotate(rotangle,rotaxis)
 
         en2 = energy2
         pz2 = momentum2 * costheta
         py2 = momentum2 * math.sqrt(1.-costheta*costheta) * np.sin(phi)
         px2 = momentum2 * math.sqrt(1.-costheta*costheta) * np.cos(phi)
         p2=LorentzVector(px2,py2,pz2,en2)
-        print('\n *** DEBUG twobody_decay p2 before ***\n',p2)
-        if rotangle!=0: p2=p2.rotate(rotangle,rotaxis)  #FIXME this makes p2 x,y,z nan
-        print('\n *** DEBUG twobody_decay p2 after ***\n',p2)
+        if rotangle!=0: p2=p2.rotate(rotangle,rotaxis)
 
         #boost p2 in p0 restframe
         p1_=p1.boost(-1.*p0.boostvector)
@@ -1699,7 +1653,6 @@ class Foresee(Utility, Decay):
         if self.model.production[key]["type"] == "2body":
             m0, m1, m2 = self.masses(pid0), self.masses(pid1,mass), mass
             momenta_llp, weights_llp = self.decay_in_restframe_2body(eval(br), m0, m1, m2, nsample)
-            print('\n *** DEBUG momenta_llp[0] ***\n',momenta_llp[0])  #FIXME nan
         if self.model.production[key]["type"] == "3body":
             m0, m1, m2, m3 = self.masses(pid0), self.masses(pid1,mass), self.masses(pid2,mass), mass
             momenta_llp, weights_llp = self.decay_in_restframe_3body(br, coupling, m0, m1, m2, m3, nsample, integration)
@@ -1866,7 +1819,6 @@ class Foresee(Utility, Decay):
             if key not in channels: continue
             if self.model.production[key]["type"] in ["2body", "3body"]:
                 momenta, weights = self.get_spectrum_decays(mass,coupling,key)
-                print('\n *** DEBUG decays momenta ***\n',momenta)  #FIXME likely nan
             if self.model.production[key]["type"]=="mixing":
                 momenta, weights = self.get_spectrum_mixing(mass,coupling,key)
                 print('\n *** DEBUG mixing momenta ***\n',momenta)
@@ -1879,7 +1831,6 @@ class Foresee(Utility, Decay):
                 energy = self.model.production[key]["energy"]
                 for iproduction, production in enumerate(self.model.production[key]["production"]):
                     filename = dirname+energy+"TeV_"+key+"_"+production+"_m_"+str(mass)+".npy"
-                    print('\n *** DEBUG enters convert_to_hist_list momenta ***\n',momenta)
                     self.convert_to_hist_list(momenta, weights[:,iproduction], do_plot=False, filename=filename)
 
             #store mome
@@ -2074,8 +2025,12 @@ class Foresee(Utility, Decay):
             cfacs = np.array([model.get_production_scaling(key, mass, coupling, coup_ref) for coupling in couplings])
 
             # filter events that pass selection
-            if _OLD_SKHEP: momenta = np.array(momenta)
-            else:          momenta = np.array([[p.px,p.py,p.pz,p.e] for p in momenta])
+            if _OLD_SKHEP:
+                momenta = np.array(momenta)
+            else:
+                if len(momenta)!=0 and type(momenta[0])==LorentzVector:
+                    momenta = np.array([[p.x,p.y,p.z,p.t] for p in momenta])
+                else: momenta = np.array(momenta)
             position = [ [self.distance/p[2]*p[0], self.distance/p[2]*p[1], self.distance] for p in momenta]
             filtered = [(p, w) for p,x,w in zip(momenta, position, weights) if self.numbafunc_selection(x[0],x[1],x[2],p[0],p[1],p[2])]
             if not filtered: continue
@@ -2172,7 +2127,12 @@ class Foresee(Utility, Decay):
             cfacs = np.array([model.get_production_scaling(key, mass, coupling, coup_ref) for coupling in couplings])
 
             # filter events that pass selection
-            momenta =np.array(momenta)
+            if _OLD_SKHEP:
+                momenta = np.array(momenta)
+            else:
+                if len(momenta)!=0 and type(momenta[0])==LorentzVector:
+                    momenta = np.array([[p.x,p.y,p.z,p.t] for p in momenta])
+                else: momenta = np.array(momenta)
             position = [ [self.distance/p[2]*p[0], self.distance/p[2]*p[1], self.distance] for p in momenta]
             filtered = [(p, w) for p,x,w in zip(momenta, position, weights) if self.numbafunc_selection(x[0],x[1],x[2],p[0],p[1],p[2])]
             if not filtered: continue
@@ -2257,7 +2217,12 @@ class Foresee(Utility, Decay):
             cfacs = np.array([model.get_production_scaling(key, mass, coupling, coup_ref) for coupling in couplings])
 
             # filter events that pass selection
-            momenta =np.array(momenta)
+            if _OLD_SKHEP:
+                momenta = np.array(momenta)
+            else:
+                if len(momenta)!=0 and type(momenta[0])==LorentzVector:
+                    momenta = np.array([[p.x,p.y,p.z,p.t] for p in momenta])
+                else: momenta = np.array(momenta)
             position = [ [self.distance/p[2]*p[0], self.distance/p[2]*p[1], self.distance] for p in momenta]
             filtered = [(p, w) for p,x,w in zip(momenta, position, weights) if self.numbafunc_selection(x[0],x[1],x[2],p[0],p[1],p[2])]
             if not filtered: continue

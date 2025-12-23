@@ -78,7 +78,7 @@ if not _OLD_SKHEP:
 
         #For overriding superclass function return value types
         def boost(self,vec3D):
-            superobj = super().boost(MomentumObject4D(x=vec3D.x,y=vec3D.y,z=vec3D.z,t=1.))
+            superobj = super().boostCM_of_beta3(vec3D)
             return LorentzVector(px=superobj.x,py=superobj.y,pz=superobj.z,e=superobj.t)
         
     
@@ -1191,13 +1191,10 @@ class Decay():
         for i in range(nsample):
             cos =self.rng.uniform(-1.,1.)
             phi =self.rng.uniform(-math.pi,math.pi)
-            print('\n *** DEBUG decay_in_restframe_2body p_mother ***\n',p_mother)
             p_1,p_2=self.twobody_decay(p_mother,m0,m1,m2,phi,cos)
-            print('\n *** DEBUG decay_in_restframe_2body p_2 ***\n',p_2)  #FIXME nan
             particles.append(p_2)
             weights.append(br/nsample)
         
-        print('\n *** DEBUG decay_in_restframe_2body particles[0] ***\n',particles[0])  #FIXME nan
         return particles,weights
 
     def decay_in_restframe_3body(self, br, coupling, m0, m1, m2, m3, nsample, integration):
@@ -1821,10 +1818,8 @@ class Foresee(Utility, Decay):
                 momenta, weights = self.get_spectrum_decays(mass,coupling,key)
             if self.model.production[key]["type"]=="mixing":
                 momenta, weights = self.get_spectrum_mixing(mass,coupling,key)
-                print('\n *** DEBUG mixing momenta ***\n',momenta)
             if self.model.production[key]["type"]=="direct":
                 momenta, weights = self.get_spectrum_direct(mass,coupling,key)
-                print('\n *** DEBUG direct momenta ***\n',momenta)
 
             #return statistcs
             if save_file==True and len(momenta)>0:

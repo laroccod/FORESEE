@@ -367,7 +367,11 @@ class Utility():
             pz.append( np.multiply(p_sm, np.cos(th_sm)) )
             en.append( np.sqrt( np.add(np.power(p_sm,2), np.power(mass,2)) ) )
             
-            weights.append([np.divide(np.array(xs),float(nsample)) for _ in range(nsample)])
+            #TODO the weights array is not flat i.e. one weight per particle, but has subarrays.
+            #Is this necessary? A simpler treatment could speed up the function.
+            #Could also attempt filling a flat array and reshaping after the loop.
+            weights.append(np.tensordot(np.divide(np.array(xs),float(nsample)),\
+                                        np.ones(nsample), axes=0).T)
         
         #Flatten 1 level
         px = np.concatenate(px)

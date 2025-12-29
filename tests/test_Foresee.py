@@ -46,6 +46,7 @@ def test_read_list_momenta_weights_1():
                 assert np.isclose(sum(np.array(list_xs).flatten()),\
                                   ref[generator+"_"+energy+"_"+pid])
 
+#@pytest.mark.skip  #Uncomment decorator to disable this test
 def test_read_list_momenta_weights_2():
     """
     Check the sum of xs values for various light hadrons using EPOSLHC &
@@ -87,6 +88,7 @@ def test_read_list_momenta_weights_2():
                 assert np.isclose(sum(np.array(list_xs).flatten()),\
                                   ref[generator+"_"+energy+"_"+pid])
 
+#@pytest.mark.skip  #Uncomment decorator to disable this test
 def test_read_list_momenta_weights_3():
     """
     Check the sum of xs values for various charm hadrons using NLO-P8 &
@@ -125,6 +127,7 @@ def test_read_list_momenta_weights_3():
                 assert np.isclose(sum(np.array(list_xs).flatten()),\
                                   ref[generator+"_"+energy+"_"+pid])
                     
+#@pytest.mark.skip  #Uncomment decorator to disable this test
 def test_read_list_momenta_weights_4():
     """
     Check the sum of xs values for various beauty hadrons using NLO-P8 &
@@ -153,3 +156,27 @@ def test_read_list_momenta_weights_4():
                 #Check approx agreement of sum of flattened list_xs w/ expected ref
                 assert np.isclose(sum(np.array(list_xs).flatten()),\
                                   ref[generator+"_"+energy+"_"+pid])
+
+#@pytest.mark.skip  #Uncomment decorator to disable this test
+def test_convert_list_to_momenta():
+    """
+    Check the correct formatting of the output momentum and weight lists/arrays
+    """
+    fname= "../files/hadrons/14TeV/NLO-P8/NLO-P8_14TeV_421.txt"
+    p,wgt = foresee.convert_list_to_momenta(filenames=fname,\
+                                            mass=foresee.masses("421"),\
+                                            nsample=10)
+    #Array types
+    assert type(p)==list
+    assert type(wgt)==np.ndarray
+    
+    #Dimensions TODO uncomment
+    #assert len(p)==50480
+    #assert len(wgt)==len(p)
+    
+    #Element types
+    assert type(p[0].px)==np.float64  #p must contain LorentzVectors w/ float component px
+    for w in wgt:
+        assert type(w)==np.ndarray
+        assert len(w)==1
+        for wi in w: assert type(wi)==np.float64

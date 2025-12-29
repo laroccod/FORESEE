@@ -333,41 +333,56 @@ class Utility():
 
         Returns
         -------
-            Particles as LorentzVectors and an array of weights
+            Particles as a list of LorentzVectors and an np.array of weights
         """
         #read file
         list_logth, list_logp, list_xs = self.read_list_momenta_weights(filenames=filenames, filetype=filetype, extend_to_low_pt_scale=None)
 
-        particles, weights = [], []
+        weights,px,py,pz,en = [],[],[],[],[]
         for logth,logp,xs in zip(list_logth,list_logp, list_xs):
             
             if nocuts==False and max(xs) < 10.**-6: continue
             p  = 10.**logp
             th = 10.**logth
-            pt = p * np.sin(th)
+            
+            #FIXME redundant? Redef below (also in previous implementation)
+            #pt = p * np.sin(th)
 
             if nocuts==False and preselectioncut is not None:
                 if not eval(preselectioncut): continue
 
-            for n in range(nsample):
-                phi= self.rng.uniform(-math.pi,math.pi)
-                fth = 10**self.rng.uniform(-0.025, 0.025)
-                fp  = 10**self.rng.uniform(-0.025, 0.025)
+            #Sample random variables
+            phi = np.array([    self.rng.uniform(-math.pi,math.pi) for _ in range(nsample)])
+            fth = np.array([10**self.rng.uniform(-0.025, 0.025)    for _ in range(nsample)])
+            fp  = np.array([10**self.rng.uniform(-0.025, 0.025)    for _ in range(nsample)])
+            
+            #Angles, momentum magnitudes and transverse momenta for constructing 4-momenta
+            th_sm = np.multiply(th,fth)
+            p_sm  = np.multiply(p,fp)
+            pt    = np.multiply(p_sm, np.sin(th_sm))
 
-                th_sm=th*fth
-                p_sm=p*fp
+            #Cartesian crds suitable for old and new LorentzVector
+            px.append( np.multiply(pt,   np.cos(phi)  ) )
+            py.append( np.multiply(pt,   np.sin(phi)  ) )
+            pz.append( np.multiply(p_sm, np.cos(th_sm)) )
+            en.append( np.sqrt( np.add(np.power(p_sm,2), np.power(mass,2)) ) )
+            
+            weights.append([np.divide(np.array(xs),float(nsample)) for _ in range(nsample)])
+        
+        #Flatten 1 level
+        px = np.concatenate(px)
+        py = np.concatenate(py)
+        pz = np.concatenate(pz)
+        en = np.concatenate(en)
+        weights = np.concatenate(weights)
+        
+        #Construct particle 4-momenta. Turn into vector.array only in later functions if new
+        #scikit vector package detected, but return value kept consistent here for now
+        #TODO we might reconsider this. Using vector.array to construct might be up to 100x faster than [... for _ in ...], and map is only 10x faster than that
+        particles = list(map(LorentzVector,px,py,pz,en))
+        
+        return particles, weights
 
-                en = math.sqrt(p_sm**2+mass**2)
-                pz = p_sm*np.cos(th_sm)
-                pt = p_sm*np.sin(th_sm)
-                px = pt*np.cos(phi)
-                py = pt*np.sin(phi)
-                part=LorentzVector(px,py,pz,en)
-
-                particles.append(part)
-                weights.append([w/float(nsample) for w in xs])
-                
-        return particles, np.array(weights)
 
     def get_hist_list(self, tx, px, weights, prange):
         """

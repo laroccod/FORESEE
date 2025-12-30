@@ -6,7 +6,6 @@ import math
 import random
 import time
 import types
-import vector #FIXME rm, debug
 try:
     from skhep.math.vectors import LorentzVector, Vector3D
     _OLD_SKHEP = True
@@ -381,7 +380,10 @@ class Utility():
         pts  = np.concatenate(pts)
 
         #Construct particle 4-momentum list/array
-        if _OLD_SKHEP:
+        #TODO inserting if-elses and treating vector.arrays instead of LorentzVectors (required if
+        #we want maximum advantage of the new skhep vector package) somewhat defeats the purpose of the
+        #wrapper. Proceed to require new skhep and rm wrapper, or keep wrapper+backwards compatibility?
+        if _OLD_SKHEP or True:  #FIXME "or True" forces old implementation for debug purposes now
             #Cartesian crds suitable for old and new LorentzVector
             px = np.multiply(pts,np.cos(phis))
             py = np.multiply(pts,np.sin(phis))

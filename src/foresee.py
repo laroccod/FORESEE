@@ -6,6 +6,7 @@ import math
 import random
 import time
 import types
+import vector #FIXME rm, debug
 try:
     from skhep.math.vectors import LorentzVector, Vector3D
     _OLD_SKHEP = True
@@ -323,7 +324,9 @@ class Utility():
         filetype: str
             Datatype suffix for filenames, w/o/ dot, e.g. "txt"
         nsample: int
-            Number of Monte Carlo samples to add into particles, and to divide weights by
+            Number of Monte Carlo samples to add into particles, and to divide weights by.
+            Each entry in the filename(s) then results in nsample particles, so the total number
+            of particles returned in the end will be [the amount in list] x nsample
         preselectioncuts: str / None
             Expression defining cuts to be used e.g. "th<0.01 and p>100"
         nocuts: bool
@@ -333,12 +336,14 @@ class Utility():
 
         Returns
         -------
-            Particles as a list of LorentzVectors and an np.array of weights
+            Particles as a list of LorentzVectors if _OLD_SKHEP (vector.array if new), 
+            and weights as an np.array of np.arrays. The weight subarray index 
+            corresponds to alternative cross sections / weights per particle
         """
         #read file
         list_logth, list_logp, list_xs = self.read_list_momenta_weights(filenames=filenames, filetype=filetype, extend_to_low_pt_scale=None)
 
-        weights,px,py,pz,en = [],[],[],[],[]
+        phis,ths,pts,ens,weights = [],[],[],[],[]
         for logth,logp,xs in zip(list_logth,list_logp, list_xs):
             
             if nocuts==False and max(xs) < 10.**-6: continue
@@ -352,40 +357,41 @@ class Utility():
                 if not eval(preselectioncut): continue
 
             #Sample random variables
-            phi = np.array([    self.rng.uniform(-math.pi,math.pi) for _ in range(nsample)])
-            fth = np.array([10**self.rng.uniform(-0.025, 0.025)    for _ in range(nsample)])
-            fp  = np.array([10**self.rng.uniform(-0.025, 0.025)    for _ in range(nsample)])
+            phis.append(np.array(list(map(self.rng.uniform,[-math.pi]*nsample,[math.pi]*nsample))))
+            fthrand = np.array(list(map(self.rng.uniform,[-0.025]*nsample,[0.025]*nsample)))
+            fprand  = np.array(list(map(self.rng.uniform,[-0.025]*nsample,[0.025]*nsample)))
+            fth = np.power(10,fthrand)
+            fp  = np.power(10,fprand )
             
-            #Angles, momentum magnitudes and transverse momenta for constructing 4-momenta
+            #Angles, 3-momentum magnitudes and transverse momenta for constructing 4-momenta
             th_sm = np.multiply(th,fth)
-            p_sm  = np.multiply(p,fp)
-            pt    = np.multiply(p_sm, np.sin(th_sm))
-
-            #Cartesian crds suitable for old and new LorentzVector
-            px.append( np.multiply(pt,   np.cos(phi)  ) )
-            py.append( np.multiply(pt,   np.sin(phi)  ) )
-            pz.append( np.multiply(p_sm, np.cos(th_sm)) )
-            en.append( np.sqrt( np.add(np.power(p_sm,2), np.power(mass,2)) ) )
+            p_sm  = np.multiply(p, fp )
+            ths.append(th_sm)
+            pts.append(np.multiply(p_sm, np.sin(th_sm)))
+            ens.append(np.sqrt(np.add(p_sm**2,mass**2)))
             
-            #TODO the weights array is not flat i.e. one weight per particle, but has subarrays.
-            #Is this necessary? A simpler treatment could speed up the function.
-            #Could also attempt filling a flat array and reshaping after the loop.
-            weights.append(np.tensordot(np.divide(np.array(xs),float(nsample)),\
-                                        np.ones(nsample), axes=0).T)
-        
-        #Flatten 1 level
-        px = np.concatenate(px)
-        py = np.concatenate(py)
-        pz = np.concatenate(pz)
-        en = np.concatenate(en)
-        weights = np.concatenate(weights)
-        
-        #Construct particle 4-momenta. Turn into vector.array only in later functions if new
-        #scikit vector package detected, but return value kept consistent here for now
-        #TODO we might reconsider this. Using vector.array to construct might be up to 100x faster than [... for _ in ...], and map is only 10x faster than that
-        particles = list(map(LorentzVector,px,py,pz,en))
-        
-        return particles, weights
+            weights.append( np.ones((nsample,1)) * np.array(xs)/float(nsample) )
+            #weights.append(np.tensordot(np.divide(np.array(xs),float(nsample)),\
+            #                            np.ones(nsample), axes=0).T)
+                
+        #Flatten
+        phis = np.concatenate(phis)
+        ths  = np.concatenate(ths)
+        ens  = np.concatenate(ens)
+        pts  = np.concatenate(pts)
+
+        #Construct particle 4-momentum list/array
+        if _OLD_SKHEP:
+            #Cartesian crds suitable for old and new LorentzVector
+            px = np.multiply(pts,np.cos(phis))
+            py = np.multiply(pts,np.sin(phis))
+            pz = np.multiply(np.sqrt(np.subtract(np.power(ens,2),mass**2)), np.cos(ths))
+            particles = list(map(LorentzVector,px,py,pz,ens))            
+        else:
+            particles = vector.array({"pt":  pts, "theta": ths, "phi": phis, "energy": ens})
+
+        #TODO make sure later functions are fine with vector.array output if not _OLD_SKHEP
+        return particles, np.concatenate(weights)
 
 
     def get_hist_list(self, tx, px, weights, prange):
@@ -488,6 +494,7 @@ class Utility():
         ----------
         momenta: [LorentzVector] / ndarray of length 4 or 2
             List of 4-momenta
+            TODO account for possibility that momenta is a vector.array
         weights: numpy array of floats
             Weights for each entry in the histo
         do_plot: bool
@@ -1663,6 +1670,7 @@ class Foresee(Utility, Decay):
 
         # load mother particle spectrum
         filenames = [self.dirpath + "files/hadrons/"+energy+"TeV/"+gen+"/"+gen+"_"+energy+"TeV_"+pid0+".txt" for gen in generator]
+        #TODO make sure both particle momentum array return values supported
         momenta_mother, weights_mother = self.convert_list_to_momenta(filenames,mass=self.masses(pid0), preselectioncut=preselectioncut, nsample=nsample_had)
 
         # get sample of LLP momenta in the mother's rest frame
@@ -1727,6 +1735,7 @@ class Foresee(Utility, Decay):
 
         # load mother particle spectrum
         filenames = [self.dirpath + "files/hadrons/"+energy+"TeV/"+gen+"/"+gen+"_"+energy+"TeV_"+pid0+".txt" for gen in generator]
+        #TODO make sure both particle momentum array return values supported
         momenta_mother, weights_mother = self.convert_list_to_momenta(filenames,mass=self.masses(pid0))
 
         # momenta
@@ -1778,6 +1787,7 @@ class Foresee(Utility, Decay):
         filenames0=[self.model.modelpath+"model/direct/"+energy+"TeV/"+config+"_"+energy+"TeV_"+str(mass0)+".txt" for config in configuration]
         filenames1=[self.model.modelpath+"model/direct/"+energy+"TeV/"+config+"_"+energy+"TeV_"+str(mass1)+".txt" for config in configuration]
         try:
+            #TODO make sure both particle momentum array return values supported
             momenta_llp0, weights_llp0 = self.convert_list_to_momenta(filenames0,mass=mass0,nocuts=True)
             momenta_llp1, weights_llp1 = self.convert_list_to_momenta(filenames1,mass=mass1,nocuts=True)
         except:
@@ -2029,6 +2039,7 @@ class Foresee(Utility, Decay):
 
             # try Load Flux file
             try:
+                #TODO make sure both particle momentum array return values supported
                 momenta, weights =self.convert_list_to_momenta(filenames=filenames, mass=mass,
                     filetype="npy", nsample=nsample, preselectioncut=preselectioncuts,
                     extend_to_low_pt_scale=extend_to_low_pt_scales[key])
@@ -2130,6 +2141,7 @@ class Foresee(Utility, Decay):
 
             # try Load Flux file
             try:
+                #TODO make sure both particle momentum array return values supported
                 momenta, weights=self.convert_list_to_momenta(
                     filenames=filenames, mass=mass,
                     filetype="npy", nsample=nsample, preselectioncut=preselectioncuts,
@@ -2220,6 +2232,7 @@ class Foresee(Utility, Decay):
             
             # try Load Flux file
             try:
+                #TODO make sure both particle momentum array return values supported
                 momenta, weights=self.convert_list_to_momenta(
                     filenames=filenames, mass=mass,
                     filetype="npy", nsample=nsample, preselectioncut=preselectioncuts,
@@ -2862,6 +2875,7 @@ class Foresee(Utility, Decay):
         """
         dirname = self.dirpath + "files/hadrons/"+energy+"TeV/"+generator+"/"
         filenames = [dirname+generator+"_"+energy+"TeV_"+pid+".txt"]
+        #TODO make sure both particle momentum array return values supported
         p,w = self.convert_list_to_momenta(filenames,mass=self.masses(pid))
         plt,_,_,_ =self.convert_to_hist_list(p,w[:,0], do_plot=True, prange=prange)
         return plt

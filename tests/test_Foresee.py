@@ -163,20 +163,39 @@ def test_convert_list_to_momenta():
     Check the correct formatting of the output momentum and weight lists/arrays
     """
     fname= "../files/hadrons/14TeV/NLO-P8/NLO-P8_14TeV_421.txt"
+    foresee.rng.seed(137)
     p,wgt = foresee.convert_list_to_momenta(filenames=fname,\
                                             mass=foresee.masses("421"),\
                                             nsample=10)
     #Array types
-    assert type(p)==list
+    #assert type(p)==list  #rm if switching to new scikit vector.array eventually
     assert type(wgt)==np.ndarray
     
-    #Dimensions TODO uncomment
-    #assert len(p)==50480
-    #assert len(wgt)==len(p)
+    #Dimensions
+    assert len(p)==50480
+    assert len(wgt)==len(p)
     
     #Element types
-    assert type(p[0].px)==np.float64  #p must contain LorentzVectors w/ float component px
+    assert type(p[0].px) in [np.float64,float]  #p must contain Lorentz vectors w/ float component px
     for w in wgt:
         assert type(w)==np.ndarray
         assert len(w)==1
-        for wi in w: assert type(wi)==np.float64
+        for wi in w: assert type(wi) in [np.float64,float]
+    
+    #Check first few weights
+    assert np.isclose(wgt[ 0][0],18.1725)
+    assert np.isclose(wgt[10][0],36.345 )
+    assert np.isclose(wgt[20][0],36.345 )
+    assert np.isclose(wgt[30][0],18.1725)
+
+    #Check first few momenta
+    p_ref = [{'px':-0.001859, 'py':-0.000909, 'pz':194.832, 'E':194.841},\
+             {'px': 0.001684, 'py':-0.001067, 'pz':196.330, 'E':196.339},\
+             {'px':-0.002082, 'py': 0.000127, 'pz':198.643, 'E':198.652},\
+             {'px':-0.000247, 'py':-0.002055, 'pz':195.014, 'E':195.023},\
+             {'px': 0.001073, 'py':-0.001501, 'pz':184.480, 'E':184.489}]
+    for i in range(len(p_ref)):
+        assert np.isclose(p[i].px, p_ref[i]['px'], rtol=0.01)
+        assert np.isclose(p[i].py, p_ref[i]['py'], rtol=0.01)
+        assert np.isclose(p[i].pz, p_ref[i]['pz'], rtol=0.01)
+        assert np.isclose(p[i].E , p_ref[i]['E' ], rtol=0.01)

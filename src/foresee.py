@@ -10,8 +10,8 @@ try:
     from skhep.math.vectors import LorentzVector, Vector3D
     _OLD_SKHEP = True
 except:
-    #from vector import VectorObject3D,VectorObject4D
     from vector import MomentumObject3D,MomentumObject4D
+    from vector import array as skheparray
     _OLD_SKHEP = False    
 from scipy import interpolate
 from matplotlib import gridspec
@@ -30,8 +30,10 @@ if not _OLD_SKHEP:
         def __init__(self, x, y, z):
             super().__init__(x=x,y=y,z=z)
 
-        #Angle between this 3-vector and another. Undefined if a vector is (0,0,0), default to 0
         def angle(self, vec):
+            """
+            Angle between this 3-vector and another. Undefined if a vector is (0,0,0), default to 0
+            """
             ret = self.deltaangle(MomentumObject3D(x=vec.x, y=vec.y, z=vec.z))
             return ret if not math.isnan(ret) else 0.
 
@@ -49,39 +51,105 @@ if not _OLD_SKHEP:
             superobj = super().unit()
             return Vector3D(x=superobj.x,y=superobj.y,z=superobj.z)
 
-
+        def tolist(self):
+            """
+            Turn a Vector3D object into a list of numbers
+            """
+            return [self.x, self.y, self.z]
+        
     class LorentzVector(MomentumObject4D):
         
         def __init__(self, px, py, pz, e):
             super().__init__(x=px,y=py,z=pz,t=e)
                 
-        #Previous LorentzVector.vector returned a 3-momentum, not the whole 4-vector
         @property
         def vector(self):
+            """
+            Previous LorentzVector.vector returned a 3-momentum, not the whole 4-vector
+            """
             return Vector3D(x=self.x, y=self.y, z=self.z)
 
         def rotate(self,angle,axis):
             superobj = super().rotate_axis(axis=axis,angle=angle)
             return LorentzVector(px=superobj.x,py=superobj.y,pz=superobj.z,e=superobj.t)
         
-        # Previous LorentzVector.vector could also return a 3-vector useful for boosts
         @property
         def boostvector(self):
-            #N.B. vector package has many alternatives for boost(), and they cannot all be 
-            #overridden. Therefore, although boosting 4-vectors with other 4-vectors
-            #may be more optimal according to scikit vector documentation
-            #(https://vector.readthedocs.io/en/latest/src/vector4d.html)
-            #it is recommended to use LorentzVector.boost(Vector3D), which will internally
-            #turn 3D vector into 4D, call the relevant function in the super class, and ensure
-            #a LorentzVector is returned instead of an instance of the super class.
+            """
+            Previous LorentzVector.vector could also return a 3-vector useful for boosts
+            
+            N.B. vector package has many alternatives for boost(), and they cannot all be 
+            overridden. Therefore, although boosting 4-vectors with other 4-vectors
+            may be more optimal according to scikit vector documentation
+            (https://vector.readthedocs.io/en/latest/src/vector4d.html)
+            it is recommended to use LorentzVector.boost(Vector3D), which will internally
+            turn 3D vector into 4D, call the relevant function in the super class, and ensure
+            a LorentzVector is returned instead of an instance of the super class.
+            """
             return Vector3D(x=self.x/self.t,y=self.y/self.t,z=self.z/self.t)
 
-        #For overriding superclass function return value types
         def boost(self,vec3D):
+            """
+            Override superclass boost function return value type
+            """
             superobj = super().boostCM_of_beta3(vec3D)
             return LorentzVector(px=superobj.x,py=superobj.y,pz=superobj.z,e=superobj.t)
         
+        def tolist(self):
+            """
+            Turn a LorentzVector object into a list of numbers
+            """
+            return [self.px, self.py, self.pz, self.E]
+
+        def boostvector_tolist(self):
+            """
+            Turn the boostvector of a LorentzVector object into a list of numbers
+            """
+            boostvec = self.boostvector
+            return [boostvec.x, boostvec.py, boostvec.pz]
+
+        
+##############################################
+##############################################
+#  AUX functions
+##############################################
+##############################################
     
+def LorentzVectors_to_array(momenta,mode='4D',boostf=-1):
+    """
+    Turn a list of LorentzVector objects (old skhep) or skheparray 
+    (new skhep) into numpy arrays suitable for efficient numerics
+
+    Parameters
+    ----------
+    momenta: [[LorentzVector/Vector3D],...] / skheparray / [[float,float,float,float],...] / np.array
+        A list of momentum vectors
+    mode: string
+        Indicates if the input momenta are '4D' or '3D' vectors, or 'boost' to return boostvectors 
+    boostf: float
+        Constant multiplier. Defaults to -1 often required for rest frame boosts
+    Returns
+    -------
+    A numpy array of lists w/ 4 floats: np.array([ [px,py,pz,E], ... ])
+    """
+    if len(momenta)==0: return np.array([])
+    if _OLD_SKHEP or type(momenta[0]) in [LorentzVector, Vector3D]:
+        if mode=='boost':
+            return boostf*np.array(list(map(lambda p: p.boostvector_tolist(), momenta)))
+        else:  #3D or 4D
+            return np.array(list(map(lambda p: p.tolist(), momenta)))
+    elif not _OLD_SKHEP:
+        try:
+            if mode=='boost':
+                return boostf*np.array([momenta.to_beta3().x,momenta.to_beta3().y,momenta.to_beta3().z]).T
+            elif mode=='3D':
+                return np.array([momenta.x, momenta.y, momenta.z]).T
+            else: #4D
+                return np.array([momenta.px, momenta.py, momenta.pz, momenta.e]).T
+        except: return np.array(momenta)
+    else: return np.array(momenta)  #Already list or np.array
+
+
 ##############################################
 ##############################################
 #  Utility Class
@@ -335,7 +403,7 @@ class Utility():
 
         Returns
         -------
-            Particles as a list of LorentzVectors if _OLD_SKHEP (vector.array if new), 
+            Particles as a list of LorentzVectors if _OLD_SKHEP (skheparray if new), 
             and weights as an np.array of np.arrays. The weight subarray index 
             corresponds to alternative cross sections / weights per particle
         """
@@ -349,9 +417,6 @@ class Utility():
             p  = 10.**logp
             th = 10.**logth
             
-            #FIXME redundant? Redef below (also in previous implementation)
-            #pt = p * np.sin(th)
-
             if nocuts==False and preselectioncut is not None:
                 if not eval(preselectioncut): continue
 
@@ -380,19 +445,15 @@ class Utility():
         pts  = np.concatenate(pts)
 
         #Construct particle 4-momentum list/array
-        #TODO inserting if-elses and treating vector.arrays instead of LorentzVectors (required if
-        #we want maximum advantage of the new skhep vector package) somewhat defeats the purpose of the
-        #wrapper. Proceed to require new skhep and rm wrapper, or keep wrapper+backwards compatibility?
-        if _OLD_SKHEP or True:  #FIXME "or True" forces old implementation for debug purposes now
+        if _OLD_SKHEP:
             #Cartesian crds suitable for old and new LorentzVector
             px = np.multiply(pts,np.cos(phis))
             py = np.multiply(pts,np.sin(phis))
             pz = np.multiply(np.sqrt(np.subtract(np.power(ens,2),mass**2)), np.cos(ths))
             particles = list(map(LorentzVector,px,py,pz,ens))            
         else:
-            particles = vector.array({"pt":  pts, "theta": ths, "phi": phis, "energy": ens})
+            particles = skheparray({"pt":  pts, "theta": ths, "phi": phis, "energy": ens})
 
-        #TODO make sure later functions are fine with vector.array output if not _OLD_SKHEP
         return particles, np.concatenate(weights)
 
 
@@ -494,9 +555,8 @@ class Utility():
 
         Parameters
         ----------
-        momenta: [LorentzVector] / ndarray of length 4 or 2
+        momenta: [LorentzVector] / skheparray (new skhep) / ndarray of length 4 or 2
             List of 4-momenta
-            TODO account for possibility that momenta is a vector.array
         weights: numpy array of floats
             Weights for each entry in the histo
         do_plot: bool
@@ -526,7 +586,13 @@ class Utility():
         elif type(momenta) == np.ndarray and len(momenta[0]) == 2:
             tx, px = momenta.T
         else:
-            print ("Error: momenta provided in unknown format!")
+            try:
+                #Covers new skhep skheparray case
+                tx = momenta.theta
+                px = momenta.p
+            except:
+                tx,px = np.array([]), np.array([])
+                print ("Error: momenta provided in unknown format: "+str(type(momenta)))
 
         # get_hist_list in
         list_t, list_p, list_w = self.get_hist_list(tx, px, weights, prange=prange )
@@ -1040,7 +1106,8 @@ class Model(Utility):
 #  DECAY Class
 ##############################################
 ##############################################
-
+#TODO the decay functions returning particle/momentum lists should return skheparrays where possible
+#TODO also other simple optimization tricks available
 class Decay():
 
     ###############################
@@ -1672,7 +1739,6 @@ class Foresee(Utility, Decay):
 
         # load mother particle spectrum
         filenames = [self.dirpath + "files/hadrons/"+energy+"TeV/"+gen+"/"+gen+"_"+energy+"TeV_"+pid0+".txt" for gen in generator]
-        #TODO make sure both particle momentum array return values supported
         momenta_mother, weights_mother = self.convert_list_to_momenta(filenames,mass=self.masses(pid0), preselectioncut=preselectioncut, nsample=nsample_had)
 
         # get sample of LLP momenta in the mother's rest frame
@@ -1684,17 +1750,8 @@ class Foresee(Utility, Decay):
             momenta_llp, weights_llp = self.decay_in_restframe_3body(br, coupling, m0, m1, m2, m3, nsample, integration)
 
         # boost
-        if _OLD_SKHEP:
-            arr_minus_boostvectors = np.array([-1*p_mother.boostvector for p_mother in momenta_mother])
-            arr_momenta_llp = np.array(momenta_llp)
-        else:
-            arr_minus_boostvectors = np.array([[-1*p_mother.boostvector.px,\
-                                                -1*p_mother.boostvector.py,\
-                                                -1*p_mother.boostvector.pz]\
-                                               for p_mother in momenta_mother ])
-            if len(momenta_llp)!=0 and type(momenta_llp[0])==LorentzVector:
-                arr_momenta_llp = np.array([[p.x,p.y,p.z,p.t] for p in momenta_llp])
-            else: arr_momenta_llp = np.array(momenta_llp)
+        arr_minus_boostvectors = LorentzVectors_to_array(momenta=momenta_mother,mode='boost',boostf=-1)
+        arr_momenta_llp = LorentzVectors_to_array(momenta_llp)
         momenta_lab = self.boostlist(arr_momenta_llp, arr_minus_boostvectors)
 
         # weights
@@ -1721,7 +1778,7 @@ class Foresee(Utility, Decay):
 
         Returns
         -------
-            Momenta and weights in the lab frame as numpy arrays
+            Momenta as [theta, |p3|] and weights in the lab frame as numpy arrays
         """
 
         # load details of production channel
@@ -1737,12 +1794,15 @@ class Foresee(Utility, Decay):
 
         # load mother particle spectrum
         filenames = [self.dirpath + "files/hadrons/"+energy+"TeV/"+gen+"/"+gen+"_"+energy+"TeV_"+pid0+".txt" for gen in generator]
-        #TODO make sure both particle momentum array return values supported
         momenta_mother, weights_mother = self.convert_list_to_momenta(filenames,mass=self.masses(pid0))
 
         # momenta
-        momenta_lab = np.array([ [np.arctan(p.pt/p.pz), p.p] for p in momenta_mother])
-
+        #TODO consider making this an AUX function like LorentzVectors_to_array
+        if _OLD_SKHEP:
+            momenta_lab = np.array([ [np.arctan(p.pt/p.pz), p.p] for p in momenta_mother])
+        else:
+            momenta_lab = np.array([momenta_mother.theta, momenta_mother.p]).T
+            
         # weights
         if type(mixing)==str:
             mixing_angle = eval(mixing)
@@ -1789,7 +1849,6 @@ class Foresee(Utility, Decay):
         filenames0=[self.model.modelpath+"model/direct/"+energy+"TeV/"+config+"_"+energy+"TeV_"+str(mass0)+".txt" for config in configuration]
         filenames1=[self.model.modelpath+"model/direct/"+energy+"TeV/"+config+"_"+energy+"TeV_"+str(mass1)+".txt" for config in configuration]
         try:
-            #TODO make sure both particle momentum array return values supported
             momenta_llp0, weights_llp0 = self.convert_list_to_momenta(filenames0,mass=mass0,nocuts=True)
             momenta_llp1, weights_llp1 = self.convert_list_to_momenta(filenames1,mass=mass1,nocuts=True)
         except:
@@ -1797,7 +1856,14 @@ class Foresee(Utility, Decay):
             return [], []
 
         #momenta
-        momenta_lab = np.array([[np.arctan(p.pt/p.pz), p.p] for p in momenta_llp0])
+        #TODO Repeated, consider making this an AUX function like LorentzVectors_to_array.
+        if _OLD_SKHEP:
+            momenta_lab = np.array([ [np.arctan(p.pt/p.pz), p.p] for p in momenta_llp0])
+            #momenta_lab1 = np.array([ [np.arctan(p.pt/p.pz), p.p] for p in momenta_llp1])  #Unused?
+        else:
+            momenta_lab = np.array([momenta_llp0.theta, momenta_llp0.p]).T
+            #momenta_lab1 = np.array([momenta_llp1.theta, momenta_llp1.p]).T  #Unused?
+        
         
         # weights
         if len(condition)>1:
@@ -2041,7 +2107,6 @@ class Foresee(Utility, Decay):
 
             # try Load Flux file
             try:
-                #TODO make sure both particle momentum array return values supported
                 momenta, weights =self.convert_list_to_momenta(filenames=filenames, mass=mass,
                     filetype="npy", nsample=nsample, preselectioncut=preselectioncuts,
                     extend_to_low_pt_scale=extend_to_low_pt_scales[key])
@@ -2052,12 +2117,8 @@ class Foresee(Utility, Decay):
             cfacs = np.array([model.get_production_scaling(key, mass, coupling, coup_ref) for coupling in couplings])
 
             # filter events that pass selection
-            if _OLD_SKHEP:
-                momenta = np.array(momenta)
-            else:
-                if len(momenta)!=0 and type(momenta[0])==LorentzVector:
-                    momenta = np.array([[p.x,p.y,p.z,p.t] for p in momenta])
-                else: momenta = np.array(momenta)
+            momenta = LorentzVectors_to_array(momenta)
+            #TODO below could likely be optimized with skheparrays, if momenta not turned into arrays just yet
             position = [ [self.distance/p[2]*p[0], self.distance/p[2]*p[1], self.distance] for p in momenta]
             filtered = [(p, w) for p,x,w in zip(momenta, position, weights) if self.numbafunc_selection(x[0],x[1],x[2],p[0],p[1],p[2])]
             if not filtered: continue
@@ -2067,12 +2128,15 @@ class Foresee(Utility, Decay):
             weights = [w * self.numbafunc_efficiency(p[3]) * self.luminosity * 1000 for (p,w) in zip(momenta, weights)]
 
             # loop over particles, and record probablity to decay in volume
+            # TODO could this be optimized?
             for p,w in zip(momenta, weights):
                 dbars = ctaus * p[2] / mass
                 prob_decays = np.exp(-self.lfront / dbars) - np.exp(-self.lback / dbars)
                 wgts = np.outer(cfacs * prob_decays * brs,w)
                 output_w.append(wgts)
 
+            #TODO do we want to return a list of LorentzVectors or a skheparray w/ new skhep?
+            #TODO could also have an auxiliary function doing the inverse of LorentzVectors_to_array
             output_p += [LorentzVector(p[0],p[1],p[2],p[3]) for p in momenta]
 
         # prepare results directory
@@ -2143,7 +2207,6 @@ class Foresee(Utility, Decay):
 
             # try Load Flux file
             try:
-                #TODO make sure both particle momentum array return values supported
                 momenta, weights=self.convert_list_to_momenta(
                     filenames=filenames, mass=mass,
                     filetype="npy", nsample=nsample, preselectioncut=preselectioncuts,
@@ -2155,12 +2218,8 @@ class Foresee(Utility, Decay):
             cfacs = np.array([model.get_production_scaling(key, mass, coupling, coup_ref) for coupling in couplings])
 
             # filter events that pass selection
-            if _OLD_SKHEP:
-                momenta = np.array(momenta)
-            else:
-                if len(momenta)!=0 and type(momenta[0])==LorentzVector:
-                    momenta = np.array([[p.x,p.y,p.z,p.t] for p in momenta])
-                else: momenta = np.array(momenta)
+            momenta = LorentzVectors_to_array(momenta)
+            #TODO the below could likely be optimized w/ skheparray
             position = [ [self.distance/p[2]*p[0], self.distance/p[2]*p[1], self.distance] for p in momenta]
             filtered = [(p, w) for p,x,w in zip(momenta, position, weights) if self.numbafunc_selection(x[0],x[1],x[2],p[0],p[1],p[2])]
             if not filtered: continue
@@ -2170,13 +2229,15 @@ class Foresee(Utility, Decay):
             weights = [w * self.luminosity * 1000 for (p,w) in zip(momenta, weights)]
 
             # loop over particles, and record interaction probablity
+            #TODO could this be optimized?
             for p,w in zip(momenta, weights):
                 sigmaint = np.array(model.get_sigmaints(mass, couplings, p[3], self.ermin, self.ermax))
                 lamdaint = 1. / self.numberdensity / sigmaint * GeV2_in_invmeter2
                 prob_int = self.length / lamdaint
                 wgts = np.outer(cfacs * prob_int, w)
                 output_w.append(wgts)
-
+                
+            #TODO reconsider output format? Use skheparray for new skhep?
             output_p += [LorentzVector(p[0],p[1],p[2],p[3]) for p in momenta]
 
         return couplings, sum(output_w), output_p, np.transpose(np.array(output_w), (1, 0, 2))
@@ -2234,7 +2295,6 @@ class Foresee(Utility, Decay):
             
             # try Load Flux file
             try:
-                #TODO make sure both particle momentum array return values supported
                 momenta, weights=self.convert_list_to_momenta(
                     filenames=filenames, mass=mass,
                     filetype="npy", nsample=nsample, preselectioncut=preselectioncuts,
@@ -2246,12 +2306,8 @@ class Foresee(Utility, Decay):
             cfacs = np.array([model.get_production_scaling(key, mass, coupling, coup_ref) for coupling in couplings])
 
             # filter events that pass selection
-            if _OLD_SKHEP:
-                momenta = np.array(momenta)
-            else:
-                if len(momenta)!=0 and type(momenta[0])==LorentzVector:
-                    momenta = np.array([[p.x,p.y,p.z,p.t] for p in momenta])
-                else: momenta = np.array(momenta)
+            momenta = LorentzVectors_to_array(momenta)
+            #TODO could the rest of this function be optimized further w/ skheparrays? Similar to above comments
             position = [ [self.distance/p[2]*p[0], self.distance/p[2]*p[1], self.distance] for p in momenta]
             filtered = [(p, w) for p,x,w in zip(momenta, position, weights) if self.numbafunc_selection(x[0],x[1],x[2],p[0],p[1],p[2])]
             if not filtered: continue
@@ -2877,7 +2933,6 @@ class Foresee(Utility, Decay):
         """
         dirname = self.dirpath + "files/hadrons/"+energy+"TeV/"+generator+"/"
         filenames = [dirname+generator+"_"+energy+"TeV_"+pid+".txt"]
-        #TODO make sure both particle momentum array return values supported
         p,w = self.convert_list_to_momenta(filenames,mass=self.masses(pid))
         plt,_,_,_ =self.convert_to_hist_list(p,w[:,0], do_plot=True, prange=prange)
         return plt

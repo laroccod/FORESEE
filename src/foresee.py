@@ -147,7 +147,7 @@ def LorentzArray(compvecdict):
 def LorentzVectors_to_f_arr(momenta,mode='4D',boostf=-1):
     """
     Turn a list of LorentzVector objects (old skhep) or skheparray 
-    (new skhep) into numpy arrays suitable for efficient numerics
+    (new skhep) into np.array(float) suitable for efficient numerics
 
     Parameters
     ----------
@@ -161,6 +161,7 @@ def LorentzVectors_to_f_arr(momenta,mode='4D',boostf=-1):
     -------
     A numpy array of lists w/ 4 floats: np.array([ [px,py,pz,E], ... ])
     """
+        
     if len(momenta)==0: return np.array([])
     if _OLD_SKHEP or type(momenta[0]) in [LorentzVector, Vector3D]:
         if mode=='boost':
@@ -176,7 +177,8 @@ def LorentzVectors_to_f_arr(momenta,mode='4D',boostf=-1):
             else: #4D
                 return np.array([momenta.px, momenta.py, momenta.pz, momenta.e]).T
         except: return np.array(momenta)
-    else: return np.array(momenta)  #Already list or np.array
+    else:
+        return np.array(momenta)  #Already list or np.array
 
 
 ##############################################
@@ -1150,48 +1152,77 @@ class Decay():
             First final state particle mass
         m2: float
             Second final state particle mass
-        phi: float
+        phi: float / np.array(float)
             Azimuthal angle
             Must be within (-pi, pi)
-        costheta: float
+        costheta: float / np.array(float)
             Cosine of the polar angle
             Must be within (-1., 1.)
+            Dimension must agree with phi
 
         Returns
         -------
-            Boosted p1,p2 as LorentzVectors
+            Boosted p1,p2 as LorentzVectors if phi & costheta are floats,
+            for vector phi & costheta return a list of LorentzVectors (old skhep)
+            or an skheparray (new skhep)
         """
-
+        
+        #assert initial state particle momentum datatype
+        p0_ = p0
+        if type(p0_)!=LorentzVector: p0_ = LorentzVector(px=p0.x,py=p0.y,pz=p0.z,e=p0.e)
+        
+        #check if angles originally  given as float or arrays/lists
+        arr_given = type(phi) in [list,np.ndarray] or type(costheta) in [list,np.ndarray]
+        
+        #For uniform internal handling, turn into arrays in any case
+        costheta_arr = np.array([costheta]).ravel()
+        phi_arr = np.array([phi]).ravel() 
+        
         #get axis of p0
         zaxis=Vector3D(0,0,1)
-        rotaxis=zaxis.cross(p0.vector).unit()
-        rotangle=zaxis.angle(p0.vector)
+        rotaxis=zaxis.cross(p0_.vector).unit()
+        rotangle=zaxis.angle(p0_.vector)
 
         #energy and momentum of p2 in the rest frame of p0
         energy1   = (m0*m0+m1*m1-m2*m2)/(2.*m0)
         energy2   = (m0*m0-m1*m1+m2*m2)/(2.*m0)
-        momentum1 = math.sqrt(energy1*energy1-m1*m1)
-        momentum2 = math.sqrt(energy2*energy2-m2*m2)
+        momentum1 = np.sqrt(energy1*energy1-m1*m1)
+        momentum2 = np.sqrt(energy2*energy2-m2*m2)
 
-        #4-momentum of p1 and p2 in the rest frame of p0
-        en1 = energy1
-        pz1 = momentum1 * costheta
-        py1 = momentum1 * math.sqrt(1.-costheta*costheta) * np.sin(phi)
-        px1 = momentum1 * math.sqrt(1.-costheta*costheta) * np.cos(phi)
-        p1=LorentzVector(-px1,-py1,-pz1,en1)
-        if rotangle!=0: p1=p1.rotate(rotangle,rotaxis)
-
-        en2 = energy2
-        pz2 = momentum2 * costheta
-        py2 = momentum2 * math.sqrt(1.-costheta*costheta) * np.sin(phi)
-        px2 = momentum2 * math.sqrt(1.-costheta*costheta) * np.cos(phi)
-        p2=LorentzVector(px2,py2,pz2,en2)
-        if rotangle!=0: p2=p2.rotate(rotangle,rotaxis)
-
-        #boost p2 in p0 restframe
-        p1_=p1.boost(-1.*p0.boostvector)
-        p2_=p2.boost(-1.*p0.boostvector)
-        return p1_,p2_
+        #4-momenta of p1 and p2 in the rest frame of p0
+        en1 = energy1*np.ones(len(phi_arr))
+        pz1 = momentum1 * costheta_arr
+        py1 = momentum1 * np.sqrt(1.-np.power(costheta_arr,2)) * np.sin(phi_arr)
+        px1 = momentum1 * np.sqrt(1.-np.power(costheta_arr,2)) * np.cos(phi_arr)
+        p1 = LorentzArray({'px':-px1,'py':-py1,'pz':-pz1,'energy':en1})        
+        en2 = energy2*np.ones(len(phi_arr))
+        pz2 = momentum2 * costheta_arr
+        py2 = momentum2 * np.sqrt(1.-np.power(costheta_arr,2)) * np.sin(phi_arr)
+        px2 = momentum2 * np.sqrt(1.-np.power(costheta_arr,2)) * np.cos(phi_arr)
+        p2 = LorentzArray({'px':px2,'py':py2,'pz':pz2,'energy':en2})
+                
+        #Rotate
+        if rotangle!=0:
+            if _OLD_SKHEP:
+                p1 = np.array(list(map(lambda p: p.rotate(rotangle,rotaxis),p1)))
+                p2 = np.array(list(map(lambda p: p.rotate(rotangle,rotaxis),p2)))
+            else:
+                p1 = p1.rotate_axis(rotaxis,rotangle)
+                p2 = p2.rotate_axis(rotaxis,rotangle)
+                
+        #boost in p0 restframe
+        if _OLD_SKHEP:
+            p1_ = np.array(list(map(lambda p: p.boost(-1.*p0_.boostvector), p1)))
+            p2_ = np.array(list(map(lambda p: p.boost(-1.*p0_.boostvector), p2)))
+        else:
+            p1_ = p1.boostCM_of_beta3(-1.*p0_.boostvector)
+            p2_ = p2.boostCM_of_beta3(-1.*p0_.boostvector)
+            
+        #Return array or LorentzVectors depending on input angles's datatypes
+        #TODO more efficient if we'd just convert all calls of such functions to assume output is array
+        if arr_given: return p1_,p2_
+        else: return LorentzVector(p1_[0].px,p1_[0].py,p1_[0].pz,p1_[0].e),\
+                     LorentzVector(p2_[0].px,p2_[0].py,p2_[0].pz,p2_[0].e)
 
     def threebody_decay_pure_phase_space(self, p0, m0, m1, m2, m3):
         """
@@ -1248,14 +1279,14 @@ class Decay():
             p3 = LorentzVector(mom3*costh13,-mom3*sinth13,0,e3)
             break
 
-        #randomly rotation of p2, p3 around p1
+        #random rotation of p2, p3 around p1
         xaxis=Vector3D(1,0,0)
         phi = self.rng.uniform(-math.pi,math.pi)
         p1=p1.rotate(phi,xaxis)
         p2=p2.rotate(phi,xaxis)
         p3=p3.rotate(phi,xaxis)
 
-        #randomly rotation of p1 in ref frame
+        #random rotation of p1 in ref frame
         phi = self.rng.uniform(-math.pi,math.pi)
         costh = self.rng.uniform(-1,1)
         theta = np.arccos(costh)
@@ -1299,18 +1330,22 @@ class Decay():
             List of particle 4-momenta, list of weights resulting from branching fraction divided by MC sample size
         """
         # prepare output
-        particles, weights = [], []
+        particles = []
+        weights = br/nsample*np.ones(nsample)
 
         #create parent 4-vector
         p_mother=LorentzVector(0,0,0,m0)
 
-        #MC sampling of angles
+        #Sample random angles
+        #cos = np.array(list(map(self.rng.uniform,     [-1.]*nsample,     [1.]*nsample)))
+        #phi = np.array(list(map(self.rng.uniform,[-math.pi]*nsample,[math.pi]*nsample)))
+        #TODO replace below w/ above: more efficient but fail tests as generation ordering differs
+        cos,phi=[],[]
         for i in range(nsample):
-            cos =self.rng.uniform(-1.,1.)
-            phi =self.rng.uniform(-math.pi,math.pi)
-            p_1,p_2=self.twobody_decay(p_mother,m0,m1,m2,phi,cos)
-            particles.append(p_2)
-            weights.append(br/nsample)
+            cos.append(self.rng.uniform(-1.,1.))
+            phi.append(self.rng.uniform(-math.pi,math.pi))
+        
+        _,particles = self.twobody_decay(p_mother,m0,m1,m2,phi,cos)
         
         return particles,weights
 

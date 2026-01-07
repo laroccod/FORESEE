@@ -114,8 +114,37 @@ if not _OLD_SKHEP:
 #  AUX functions
 ##############################################
 ##############################################
+
+#TODO should this actually be a class serving as a wrapper to skheparray / [LorentzVector]?
+def LorentzArray(compvecdict):
+    """
+    Construct particle 4-momentum list/array
+    Parameters
+    ----------
+    compvecdict: {str: list / np.array(float)}
+        The components 
+        E.g. {'px': [float,...], ..., 'energy': [float,...]}
+             or
+             {'pt': [float,...], "theta": [float,...], "phi": [float,...], "energy": [float,...]}
+    """
+    if _OLD_SKHEP:
+        if sum([key in compvecdict for key in ['px','py','pz','energy']])==4:
+            return list(map(LorentzVector,compvecdict['px'    ],\
+                                          compvecdict['py'    ],\
+                                          compvecdict['pz'    ],\
+                                          compvecdict['energy']))            
+        elif sum([key in compvecdict for key in ['pt','theta','phi','energy']])==4:
+            return list(map(LorentzVector,np.multiply(compvecdict['pt'],np.cos(compvecdict['phi'  ])),\
+                                          np.multiply(compvecdict['pt'],np.sin(compvecdict['phi'  ])),\
+                                          np.multiply(compvecdict['pt'],np.tan(compvecdict['theta'])),\
+                                          compvecdict['energy']))
+        else:
+            print('LorentzArray components must be px,py,pz,energy, returning empty list')
+            return []
+    else:
+        return skheparray(compvecdict)
     
-def LorentzVectors_to_array(momenta,mode='4D',boostf=-1):
+def LorentzVectors_to_f_arr(momenta,mode='4D',boostf=-1):
     """
     Turn a list of LorentzVector objects (old skhep) or skheparray 
     (new skhep) into numpy arrays suitable for efficient numerics
@@ -445,14 +474,7 @@ class Utility():
         pts  = np.concatenate(pts)
 
         #Construct particle 4-momentum list/array
-        if _OLD_SKHEP:
-            #Cartesian crds suitable for old and new LorentzVector
-            px = np.multiply(pts,np.cos(phis))
-            py = np.multiply(pts,np.sin(phis))
-            pz = np.multiply(np.sqrt(np.subtract(np.power(ens,2),mass**2)), np.cos(ths))
-            particles = list(map(LorentzVector,px,py,pz,ens))            
-        else:
-            particles = skheparray({"pt":  pts, "theta": ths, "phi": phis, "energy": ens})
+        particles = LorentzArray({"pt": pts, "theta": ths, "phi": phis, "energy": ens})
 
         return particles, np.concatenate(weights)
 
@@ -1750,8 +1772,8 @@ class Foresee(Utility, Decay):
             momenta_llp, weights_llp = self.decay_in_restframe_3body(br, coupling, m0, m1, m2, m3, nsample, integration)
 
         # boost
-        arr_minus_boostvectors = LorentzVectors_to_array(momenta=momenta_mother,mode='boost',boostf=-1)
-        arr_momenta_llp = LorentzVectors_to_array(momenta_llp)
+        arr_minus_boostvectors = LorentzVectors_to_f_arr(momenta=momenta_mother,mode='boost',boostf=-1)
+        arr_momenta_llp = LorentzVectors_to_f_arr(momenta_llp)
         momenta_lab = self.boostlist(arr_momenta_llp, arr_minus_boostvectors)
 
         # weights
@@ -1797,7 +1819,7 @@ class Foresee(Utility, Decay):
         momenta_mother, weights_mother = self.convert_list_to_momenta(filenames,mass=self.masses(pid0))
 
         # momenta
-        #TODO consider making this an AUX function like LorentzVectors_to_array
+        #TODO consider making this an AUX function like LorentzVectors_to_f_arr
         if _OLD_SKHEP:
             momenta_lab = np.array([ [np.arctan(p.pt/p.pz), p.p] for p in momenta_mother])
         else:
@@ -1856,7 +1878,7 @@ class Foresee(Utility, Decay):
             return [], []
 
         #momenta
-        #TODO Repeated, consider making this an AUX function like LorentzVectors_to_array.
+        #TODO Repeated, consider making this an AUX function like LorentzVectors_to_f_arr
         if _OLD_SKHEP:
             momenta_lab = np.array([ [np.arctan(p.pt/p.pz), p.p] for p in momenta_llp0])
             #momenta_lab1 = np.array([ [np.arctan(p.pt/p.pz), p.p] for p in momenta_llp1])  #Unused?
@@ -2117,7 +2139,7 @@ class Foresee(Utility, Decay):
             cfacs = np.array([model.get_production_scaling(key, mass, coupling, coup_ref) for coupling in couplings])
 
             # filter events that pass selection
-            momenta = LorentzVectors_to_array(momenta)
+            momenta = LorentzVectors_to_f_arr(momenta)
             #TODO below could likely be optimized with skheparrays, if momenta not turned into arrays just yet
             position = [ [self.distance/p[2]*p[0], self.distance/p[2]*p[1], self.distance] for p in momenta]
             filtered = [(p, w) for p,x,w in zip(momenta, position, weights) if self.numbafunc_selection(x[0],x[1],x[2],p[0],p[1],p[2])]
@@ -2136,7 +2158,7 @@ class Foresee(Utility, Decay):
                 output_w.append(wgts)
 
             #TODO do we want to return a list of LorentzVectors or a skheparray w/ new skhep?
-            #TODO could also have an auxiliary function doing the inverse of LorentzVectors_to_array
+            #TODO could also have an auxiliary function doing the inverse of LorentzVectors_to_f_arr
             output_p += [LorentzVector(p[0],p[1],p[2],p[3]) for p in momenta]
 
         # prepare results directory
@@ -2218,7 +2240,7 @@ class Foresee(Utility, Decay):
             cfacs = np.array([model.get_production_scaling(key, mass, coupling, coup_ref) for coupling in couplings])
 
             # filter events that pass selection
-            momenta = LorentzVectors_to_array(momenta)
+            momenta = LorentzVectors_to_f_arr(momenta)
             #TODO the below could likely be optimized w/ skheparray
             position = [ [self.distance/p[2]*p[0], self.distance/p[2]*p[1], self.distance] for p in momenta]
             filtered = [(p, w) for p,x,w in zip(momenta, position, weights) if self.numbafunc_selection(x[0],x[1],x[2],p[0],p[1],p[2])]
@@ -2306,7 +2328,7 @@ class Foresee(Utility, Decay):
             cfacs = np.array([model.get_production_scaling(key, mass, coupling, coup_ref) for coupling in couplings])
 
             # filter events that pass selection
-            momenta = LorentzVectors_to_array(momenta)
+            momenta = LorentzVectors_to_f_arr(momenta)
             #TODO could the rest of this function be optimized further w/ skheparrays? Similar to above comments
             position = [ [self.distance/p[2]*p[0], self.distance/p[2]*p[1], self.distance] for p in momenta]
             filtered = [(p, w) for p,x,w in zip(momenta, position, weights) if self.numbafunc_selection(x[0],x[1],x[2],p[0],p[1],p[2])]

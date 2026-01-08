@@ -111,11 +111,10 @@ if not _OLD_SKHEP:
         
 ##############################################
 ##############################################
-#  AUX functions
+#  AUX functions wrapping skhep version deps 
 ##############################################
 ##############################################
 
-#TODO should this actually be a class serving as a wrapper to skheparray / [LorentzVector]?
 def LorentzArray(compvecdict):
     """
     Construct particle 4-momentum list/array
@@ -180,6 +179,64 @@ def LorentzVectors_to_f_arr(momenta,mode='4D',boostf=-1):
     else:
         return np.array(momenta)  #Already list or np.array
 
+def theta_p3_f_arr(momenta):
+    """
+    Angles wrt z-axis and magnitudes of 3-momenta
+    
+    Parameters
+    ----------
+    momenta: [LorentzVector] / skheparray
+        Array of momenta from which to extract the theta angles and 3-momentum magnitudes
+    Returns
+    -------
+    A 2D np.array(float) w/ first index corresponding to particles: [ [theta, |p3|], ... ]
+    """
+    if _OLD_SKHEP:
+        return np.array(list(map(lambda p: [np.arctan(p.pt/p.pz), p.p], momenta)))
+    else:
+        return np.array([momenta.theta, momenta.p]).T
+
+def rotateLorentzArray(momenta,rotangle,rotaxis):
+    """
+    Rotate all vectors in an array of 4-momenta
+    
+    Parameters
+    ----------
+    momenta: [LorentzArray] / skheparray
+        An array of vectors to be rotated
+    rotangle: float
+        The angle how much to rotate
+    rotaxis: Vector3D
+        The axis about which to rotate
+    Returns
+    -------
+    The rotated vectors as a numpy array (old skhep) / skheparray (new skhep)
+    """
+    if rotangle==0: return momenta
+    elif _OLD_SKHEP:
+        return np.array(list(map(lambda p: p.rotate(rotangle,rotaxis), momenta)))
+    else:
+        return momenta.rotate_axis(rotaxis,rotangle)
+
+def boostLorentzArray(momenta,boostvector):
+    """
+    Boost all 4-momenta in an array
+    
+    Parameters
+    ----------
+    momenta: [LorentzArray] / skheparray
+        An array of vectors to be rotated
+    boostvector: Vector3D
+        A vector by which to boost, see LorentzVector.boostvector.
+        Boosting to the rest frame of a particle typically requires a factor of -1
+    Returns
+    -------
+    The boosted vectors as a numpy array (old skhep) / skheparray (new skhep)
+    """
+    if _OLD_SKHEP:
+        return np.array(list(map(lambda p: p.boost(boostvector), momenta)))
+    else:
+        return momenta.boostCM_of_beta3(boostvector)
 
 ##############################################
 ##############################################
@@ -466,8 +523,6 @@ class Utility():
             ens.append(np.sqrt(np.add(p_sm**2,mass**2)))
             
             weights.append( np.ones((nsample,1)) * np.array(xs)/float(nsample) )
-            #weights.append(np.tensordot(np.divide(np.array(xs),float(nsample)),\
-            #                            np.ones(nsample), axes=0).T)
                 
         #Flatten
         phis = np.concatenate(phis)
@@ -1202,21 +1257,12 @@ class Decay():
         p2 = LorentzArray({'px':px2,'py':py2,'pz':pz2,'energy':en2})
                 
         #Rotate
-        if rotangle!=0:
-            if _OLD_SKHEP:
-                p1 = np.array(list(map(lambda p: p.rotate(rotangle,rotaxis),p1)))
-                p2 = np.array(list(map(lambda p: p.rotate(rotangle,rotaxis),p2)))
-            else:
-                p1 = p1.rotate_axis(rotaxis,rotangle)
-                p2 = p2.rotate_axis(rotaxis,rotangle)
-                
+        p1 = rotateLorentzArray(momenta=p1,rotangle=rotangle,rotaxis=rotaxis)
+        p2 = rotateLorentzArray(momenta=p2,rotangle=rotangle,rotaxis=rotaxis)
+        
         #boost in p0 restframe
-        if _OLD_SKHEP:
-            p1_ = np.array(list(map(lambda p: p.boost(-1.*p0_.boostvector), p1)))
-            p2_ = np.array(list(map(lambda p: p.boost(-1.*p0_.boostvector), p2)))
-        else:
-            p1_ = p1.boostCM_of_beta3(-1.*p0_.boostvector)
-            p2_ = p2.boostCM_of_beta3(-1.*p0_.boostvector)
+        p1_ = boostLorentzArray(momenta=p1,boostvector=-1.*p0_.boostvector)
+        p2_ = boostLorentzArray(momenta=p2,boostvector=-1.*p0_.boostvector)
             
         #Return array or LorentzVectors depending on input angles's datatypes
         #TODO more efficient if we'd just convert all calls of such functions to assume output is array
@@ -1853,12 +1899,8 @@ class Foresee(Utility, Decay):
         filenames = [self.dirpath + "files/hadrons/"+energy+"TeV/"+gen+"/"+gen+"_"+energy+"TeV_"+pid0+".txt" for gen in generator]
         momenta_mother, weights_mother = self.convert_list_to_momenta(filenames,mass=self.masses(pid0))
 
-        # momenta
-        #TODO consider making this an AUX function like LorentzVectors_to_f_arr
-        if _OLD_SKHEP:
-            momenta_lab = np.array([ [np.arctan(p.pt/p.pz), p.p] for p in momenta_mother])
-        else:
-            momenta_lab = np.array([momenta_mother.theta, momenta_mother.p]).T
+        # z-axis angles and 3-momentum magnitudes from momenta
+        momenta_lab = theta_p3_f_arr(momenta=momenta_mother)
             
         # weights
         if type(mixing)==str:
@@ -1912,15 +1954,8 @@ class Foresee(Utility, Decay):
             print ("did not find file:", filenames0, "or", filenames1)
             return [], []
 
-        #momenta
-        #TODO Repeated, consider making this an AUX function like LorentzVectors_to_f_arr
-        if _OLD_SKHEP:
-            momenta_lab = np.array([ [np.arctan(p.pt/p.pz), p.p] for p in momenta_llp0])
-            #momenta_lab1 = np.array([ [np.arctan(p.pt/p.pz), p.p] for p in momenta_llp1])  #Unused?
-        else:
-            momenta_lab = np.array([momenta_llp0.theta, momenta_llp0.p]).T
-            #momenta_lab1 = np.array([momenta_llp1.theta, momenta_llp1.p]).T  #Unused?
-        
+        # z-axis angles and 3-momentum magnitudes from momenta
+        momenta_lab = theta_p3_f_arr(momenta=momenta_llp0)                
         
         # weights
         if len(condition)>1:

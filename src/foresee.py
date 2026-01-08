@@ -1197,15 +1197,19 @@ class Decay():
         """
         Function that decays p0 -> p1 p2 and returns p1,p2
 
+        Note that if more than one of m0,m1,m2,phi,costheta are given as arrays, the dimensions of any 
+        two arrays must agree. The manipulations of energies and momenta below are designed to work
+        with numpy array syntax, which performs operations element-by-element.
+
         Parameters
         ----------
         p0: LorentzVector
             Initial state particle 4-momentum
-        m0: float
+        m0: float / np.array(float)
             Mass of the incoming particle
-        m1: float
+        m1: float / np.array(float)
             First final state particle mass
-        m2: float
+        m2: float / np.array(float)
             Second final state particle mass
         phi: float / np.array(float)
             Azimuthal angle
@@ -1213,44 +1217,47 @@ class Decay():
         costheta: float / np.array(float)
             Cosine of the polar angle
             Must be within (-1., 1.)
-            Dimension must agree with phi
-
+        
         Returns
         -------
-            Boosted p1,p2 as LorentzVectors if phi & costheta are floats,
-            for vector phi & costheta return a list of LorentzVectors (old skhep)
-            or an skheparray (new skhep)
+            Boosted p1,p2 as LorentzVectors if phi & costheta are floats, or if input variables 
+            are arrays, return a list of LorentzVectors (old skhep) / skheparray (new skhep)
         """
+        
+        #TODO for further optimization, consider case where p0 is a skheparray / LorentzArray
         
         #assert initial state particle momentum datatype
         p0_ = p0
         if type(p0_)!=LorentzVector: p0_ = LorentzVector(px=p0.x,py=p0.y,pz=p0.z,e=p0.e)
         
-        #check if angles originally  given as float or arrays/lists
-        arr_given = type(phi) in [list,np.ndarray] or type(costheta) in [list,np.ndarray]
-        
-        #For uniform internal handling, turn into arrays in any case
-        costheta_arr = np.array([costheta]).ravel()
-        phi_arr = np.array([phi]).ravel() 
-        
         #get axis of p0
         zaxis=Vector3D(0,0,1)
         rotaxis=zaxis.cross(p0_.vector).unit()
         rotangle=zaxis.angle(p0_.vector)
-
+        
+        #check if parameters given as float or arrays/lists
+        arr_given = sum([type(var) in [list,np.ndarray] for var in[m0,m1,m2,phi,costheta]])>0
+        arrlen = max(list(map(lambda var: len(np.array([var]).ravel()), [costheta,phi,m0,m1,m2])))
+                
         #energy and momentum of p2 in the rest frame of p0
+        #N.B. if any m are arrays, both energy1,2 & momentum1,2 will also be, and so also px,py,pz,en
         energy1   = (m0*m0+m1*m1-m2*m2)/(2.*m0)
         energy2   = (m0*m0-m1*m1+m2*m2)/(2.*m0)
         momentum1 = np.sqrt(energy1*energy1-m1*m1)
         momentum2 = np.sqrt(energy2*energy2-m2*m2)
 
+        #for uniform internal handling in case m aren't arrays, turn angles into arrays s.t. at
+        #least one term in px,py,pz,en expressions below is an np.array, making px,py,pz,en np.arrays
+        costheta_arr = np.array([costheta]).ravel()
+        phi_arr = np.array([phi]).ravel() 
+
         #4-momenta of p1 and p2 in the rest frame of p0
-        en1 = energy1*np.ones(len(phi_arr))
+        en1 = energy1*np.ones(arrlen)
         pz1 = momentum1 * costheta_arr
         py1 = momentum1 * np.sqrt(1.-np.power(costheta_arr,2)) * np.sin(phi_arr)
         px1 = momentum1 * np.sqrt(1.-np.power(costheta_arr,2)) * np.cos(phi_arr)
         p1 = LorentzArray({'px':-px1,'py':-py1,'pz':-pz1,'energy':en1})        
-        en2 = energy2*np.ones(len(phi_arr))
+        en2 = energy2*np.ones(arrlen)
         pz2 = momentum2 * costheta_arr
         py2 = momentum2 * np.sqrt(1.-np.power(costheta_arr,2)) * np.sin(phi_arr)
         px2 = momentum2 * np.sqrt(1.-np.power(costheta_arr,2)) * np.cos(phi_arr)
@@ -1263,7 +1270,7 @@ class Decay():
         #boost in p0 restframe
         p1_ = boostLorentzArray(momenta=p1,boostvector=-1.*p0_.boostvector)
         p2_ = boostLorentzArray(momenta=p2,boostvector=-1.*p0_.boostvector)
-            
+
         #Return array or LorentzVectors depending on input angles's datatypes
         #TODO more efficient if we'd just convert all calls of such functions to assume output is array
         if arr_given: return p1_,p2_
@@ -1460,8 +1467,6 @@ class Decay():
         -------
             List of particle 4-momenta, list of weights resulting from branching fraction divided by MC sample size
         """
-        # prepare output
-        particles, weights = [], []
 
         #create parent 4-vector
         p_mother=LorentzVector(0,0,0,m0)
@@ -1471,34 +1476,42 @@ class Decay():
         cthmin,cthmax = -1. , 1.
         mass = m3
 
-        #numerical integration
-        integral=0
+        #Sample kinematic variables
+        #q2   = np.array(list(map(self.rng.uniform,[q2min   ]*nsample,[q2max  ]*nsample)))
+        #cth  = np.array(list(map(self.rng.uniform,[cthmin  ]*nsample,[cthmax ]*nsample)))
+        #phiQ = np.array(list(map(self.rng.uniform,[-math.pi]*nsample,[math.pi]*nsample)))
+        #cosM = np.array(list(map(self.rng.uniform,[-1.     ]*nsample,[1.     ]*nsample)))
+        #phiM = np.array(list(map(self.rng.uniform,[-math.pi]*nsample,[math.pi]*nsample)))
+        #TODO replace below w/ above: more efficient but generation order differs
+        q2,cth,phiQ,cosM,phiM = [],[],[],[],[]
         for i in range(nsample):
-
-            #Get kinematic Variables
-            q2 = self.rng.uniform(q2min,q2max)
-            cth = self.rng.uniform(cthmin,cthmax)
-            th = np.arccos(cth)
-            q  = math.sqrt(q2)
-
-            #decay meson and V
-            cosQ =cth
-            phiQ =self.rng.uniform(-math.pi,math.pi)
-            cosM =self.rng.uniform(-1.,1.)
-            phiM =self.rng.uniform(-math.pi,math.pi)
-            p_1,p_q=self.twobody_decay(p_mother,m0 ,m1,q  ,phiM,cosM)
-            p_2,p_3=self.twobody_decay(p_q     ,q  ,m2,m3 ,phiQ,cosQ)
-
-            #branching fraction
-            brval  = eval(br)
-            brval *= (q2max-q2min)*(cthmax-cthmin)/float(nsample)
-
-            #save
+            q2  .append(self.rng.uniform(q2min,   q2max  ))
+            cth .append(self.rng.uniform(cthmin,  cthmax ))
+            phiQ.append(self.rng.uniform(-math.pi,math.pi))
+            cosM.append(self.rng.uniform(-1.,     1.     ))
+            phiM.append(self.rng.uniform(-math.pi,math.pi))
+        
+        #Redefinitions
+        th = np.arccos(cth)  #FIXME seems unused but definition required should e.g. pass as parameter
+        q  = np.sqrt(q2)
+        cosQ = cth
+            
+        #Decay meson and V
+        particles=[]
+        p_1,p_q = self.twobody_decay(p_mother,m0,m1,q,phiM,cosM)
+        for i in range(nsample):
+            #TODO could optimize further if p_q could also be given as an array
+            p_2,p_3 = self.twobody_decay(p_q[i],q[i],m2,m3,phiQ[i],cosQ[i])
             particles.append(p_3)
-            weights.append(brval)
+            
+        #branching fraction
+        brval = eval(br)
+        brval *= (q2max-q2min)*(cthmax-cthmin)/float(nsample)
+        weights = brval*np.ones(nsample)
 
         return particles,weights
 
+    #TODO optimize by using LorentzArray
     def decay_in_restframe_3body_dq2dE(self, br, coupling, m0, m1, m2, m3, nsample):
         """
         3-body decay function with integration over q^2 and energy
@@ -1567,6 +1580,7 @@ class Decay():
 
         return particles,weights
 
+    #TODO optimize by using LorentzArray
     def decay_in_restframe_3body_dE(self, br, coupling, m0, m1, m2, m3, nsample):
         """
         3-body decay function with integration over energy
@@ -1659,6 +1673,7 @@ class Decay():
         p_mother=LorentzVector(0,0,0,m0)
 
         # numerical integration
+        #TODO optimize using similar methods as decay_in_restframe_3body_dq2dcosth
         for i in range(nsample):
             # set kinematic Variables
             cosI =random.uniform(-1.,1.)

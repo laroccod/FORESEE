@@ -120,7 +120,7 @@ def boostvector_tolist(momentum):
     A list of 3 floats
     """
     boostvec = momentum.boostvector
-    return [boostvec.x, boostvec.py, boostvec.pz]
+    return [boostvec.x, boostvec.y, boostvec.z]
 
 
 def LorentzArray(compvecdict):
@@ -146,7 +146,7 @@ def LorentzArray(compvecdict):
         elif sum([key in compvecdict for key in ['pt','theta','phi','energy']])==4:
             return list(map(LorentzVector,np.multiply(compvecdict['pt'],np.cos(compvecdict['phi'  ])),\
                                           np.multiply(compvecdict['pt'],np.sin(compvecdict['phi'  ])),\
-                                          np.multiply(compvecdict['pt'],np.tan(compvecdict['theta'])),\
+                                          np.divide(compvecdict['pt'],np.tan(compvecdict['theta'])),\
                                           compvecdict['energy']))
         else:
             print('LorentzArray components must be px,py,pz,energy, returning empty list')
@@ -221,16 +221,16 @@ def rotateLorentzArray(momenta,rotangle,rotaxis):
         The axis about which to rotate
     Returns
     -------
-    The rotated vectors as a numpy array (old skhep) / skheparray (new skhep)
+    The rotated vectors as a list of LorentzVectors (old skhep) / skheparray (new skhep)
     """
     if rotangle==0: return momenta
     elif _OLD_SKHEP:
         if type(rotangle) in [float, np.float64]:
             #Rotate every vector in momenta by the same angle about the same axis
-            return np.array(list(map(lambda p: p.rotate(rotangle,rotaxis), momenta)))
+            return list(map(lambda p: p.rotate(rotangle,rotaxis), momenta))
         else:
             #Rotate each vector in momentum by a dedicated angle about a dedicated axis
-            return np.array(list(map(lambda p, alpha: p.rotate(alpha,rotaxis), momenta, rotangle)))
+            return list(map(lambda p, alpha: p.rotate(alpha,rotaxis), momenta, rotangle))
             #TODO support for other combinations if required: list of angles but one axis / vice-versa
     else:
         #skheparray supports lists of angles / 3D vector skheparrays out-of-the-box (rotates elementwise)
@@ -249,15 +249,15 @@ def boostLorentzArray(momenta,boostvector):
         Boosting to the rest frame of a particle typically requires a factor of -1
     Returns
     -------
-    The boosted vectors as a numpy array (old skhep) / skheparray (new skhep)
+    The boosted vectors as a list of LorentzVectors (old skhep) / skheparray (new skhep)
     """
     if _OLD_SKHEP:
         if type(boostvector)==Vector3D:
             #A single boostvector given
-            return np.array(list(map(lambda p: p.boost(boostvector), momenta)))
+            return list(map(lambda p: p.boost(boostvector), momenta))
         else:
             #Assume boostvector is a list / array TODO treat/check other possibilities if needed
-            return np.array(list(map(lambda p, beta: p.boost(beta), momenta, boostvector)))
+            return list(map(lambda p, beta: p.boost(beta), momenta, boostvector))
     else:
         return momenta.boostCM_of_beta3(boostvector)
 

@@ -198,4 +198,4 @@ def test_convert_list_to_momenta():
         assert np.isclose(p[i].px, p_ref[i]['px'], rtol=0.01)
         assert np.isclose(p[i].py, p_ref[i]['py'], rtol=0.01)
         assert np.isclose(p[i].pz, p_ref[i]['pz'], rtol=0.01)
-        assert np.isclose(p[i].E , p_ref[i]['E' ], rtol=0.01)
+        assert np.isclose(p[i].e , p_ref[i]['E' ], rtol=0.01)

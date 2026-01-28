@@ -11,6 +11,8 @@ try:
     _OLD_SKHEP = True
 except:
     from vector import MomentumObject3D,MomentumObject4D
+    from vector import VectorNumpy3D,VectorNumpy4D
+    from vector import MomentumNumpy3D,MomentumNumpy4D
     from vector import array as skheparray
     _OLD_SKHEP = False    
 from scipy import interpolate
@@ -34,18 +36,34 @@ if not _OLD_SKHEP:
             """
             Angle between this 3-vector and another. Undefined if a vector is (0,0,0), default to 0
             """
-            ret = self.deltaangle(MomentumObject3D(x=vec.x, y=vec.y, z=vec.z))
-            return ret if not math.isnan(ret) else 0.
+            try:
+                #If a skheparray of vectors given
+                vec_len = len(vec)
+                ret = self.deltaangle(vec)
+                ret[np.isnan(ret)] = 0.  #Replace NaN values w/ zeroes
+                return ret
+            except:
+                #A single vector given
+                ret = self.deltaangle(MomentumObject3D(x=vec.x, y=vec.y, z=vec.z))
+                return ret if not math.isnan(ret) else 0.
 
         #Override superclass function return value types
 
         def dot(self,vec):
             superobj = super().dot(vec)
-            return Vector3D(x=superobj.x,y=superobj.y,z=superobj.z)
+            try:
+                vec_len = len(vec)
+                return skheparray({'x':superobj.x,'y':superobj.y,'z':superobj.z})
+            except: return Vector3D(x=superobj.x,y=superobj.y,z=superobj.z)
 
         def cross(self,vec):
-            superobj = super().cross(vec)
-            return Vector3D(x=superobj.x,y=superobj.y,z=superobj.z)
+            try:
+                vec_len = len(vec)
+                superobj = super().cross(skheparray({'x':vec.x,'y':vec.y,'z':vec.z}))
+                return skheparray({'x':superobj.x,'y':superobj.y,'z':superobj.z})
+            except:
+                superobj = super().cross(vec)
+                return Vector3D(x=superobj.x,y=superobj.y,z=superobj.z)
 
         def unit(self):
             superobj = super().unit()
@@ -73,6 +91,13 @@ if not _OLD_SKHEP:
             superobj = super().rotate_axis(axis=axis,angle=angle)
             return LorentzVector(px=superobj.x,py=superobj.y,pz=superobj.z,e=superobj.t)
         
+        #Override left and right multiplication s.t. we can do e.g. -1*LorentzVector
+        def __mul__(self,val):
+            ret = super().__mul__(val)
+            return LorentzVector(px=ret.x,py=ret.y,pz=ret.z,e=ret.t)
+        def __rmul__(self,val):
+            return self.__mul__(val)
+        
         @property
         def boostvector(self):
             """
@@ -92,7 +117,8 @@ if not _OLD_SKHEP:
             """
             Override superclass boost function return value type
             """
-            superobj = super().boostCM_of_beta3(vec3D)
+            superobj = super().boost_beta3(vec3D)
+            #superobj = super().boostCM_of_beta3(vec3D)
             return LorentzVector(px=superobj.x,py=superobj.y,pz=superobj.z,e=superobj.t)
         
         def tolist(self):
@@ -207,6 +233,47 @@ def theta_p3_f_arr(momenta):
     else:
         return np.array([momenta.theta, momenta.p]).T
 
+def get_rotangle(refax,p4):
+    """
+    Fetch rotation angles for a 4-vector p4, or several momenta, based on a given reference axis
+
+    Parameters
+    ----------
+    refax: Vector3D
+        Reference axis, e.g. an object corresponding to the z-axis
+    p4: LorentzVector / [LorentzVector] / skheparray
+        The momentum / momenta from which to extract the angle
+    Returns
+    -------
+        If p4 is a single momentum, the angle as a float, else an array of floats
+    """
+    if _OLD_SKHEP and type(p4)==list:
+        return list(map(lambda p: refax.angle(p.vector), p4))
+    elif type(p4)==LorentzVector: return refax.angle(p4.vector)
+    #p0_ is a Vector3D or a skheparray, for which this works for array (3D or 4D) or a single p4
+    else: return refax.angle(p4)
+
+def get_rotaxis(refax,p4):
+    """
+    Fetch a rotation axis object for a 4-vector p4, or several momenta, based on a given reference axis
+
+    Parameters
+    ----------
+    refax: Vector3D
+        Reference axis, e.g. an object corresponding to the z-axis
+    p4: LorentzVector / [LorentzVector] / skheparray
+        The momentum / momenta from which to extract the axis
+    Returns
+    -------
+        If p4 is a single momentum, the rotation axis as a Vector3D, 
+        else [Vector3D] (old skhep) / skheparray (new skhep)
+    """
+    if _OLD_SKHEP and type(p4)==list:
+        return list(map(lambda p: refax.cross(p.vector).unit(), p4))
+    elif type(p4)==LorentzVector: return refax.cross(p4.vector).unit()
+    #p0_ is a Vector3D or a skheparray, for which this works for array (3D or 4D) or a single p4
+    else: return refax.cross(p4).unit()
+
 def rotateLorentzArray(momenta,rotangle,rotaxis):
     """
     Rotate all vectors in an array of 4-momenta
@@ -223,8 +290,7 @@ def rotateLorentzArray(momenta,rotangle,rotaxis):
     -------
     The rotated vectors as a list of LorentzVectors (old skhep) / skheparray (new skhep)
     """
-    if rotangle==0: return momenta
-    elif _OLD_SKHEP:
+    if _OLD_SKHEP:
         if type(rotangle) in [float, np.float64]:
             #Rotate every vector in momenta by the same angle about the same axis
             return list(map(lambda p: p.rotate(rotangle,rotaxis), momenta))
@@ -233,10 +299,11 @@ def rotateLorentzArray(momenta,rotangle,rotaxis):
             return list(map(lambda p, alpha: p.rotate(alpha,rotaxis), momenta, rotangle))
             #TODO support for other combinations if required: list of angles but one axis / vice-versa
     else:
+        if type(rotangle) in [float, np.float64] and rotangle==0: return momenta
         #skheparray supports lists of angles / 3D vector skheparrays out-of-the-box (rotates elementwise)
         return momenta.rotate_axis(rotaxis,rotangle)
 
-def boostLorentzArray(momenta,boostvector):
+def boostLorentzArray(momenta,boostby):
     """
     Boost all 4-momenta in an array
     
@@ -244,7 +311,7 @@ def boostLorentzArray(momenta,boostvector):
     ----------
     momenta: [LorentzArray] / skheparray
         An array of vectors to be rotated
-    boostvector: Vector3D / [Vector3D] / skheparray
+    boostby: Vector3D / [Vector3D] / LorentzVector / skheparray
         A vector by which to boost, see LorentzVector.boostvector.
         Boosting to the rest frame of a particle typically requires a factor of -1
     Returns
@@ -252,15 +319,49 @@ def boostLorentzArray(momenta,boostvector):
     The boosted vectors as a list of LorentzVectors (old skhep) / skheparray (new skhep)
     """
     if _OLD_SKHEP:
-        if type(boostvector)==Vector3D:
-            #A single boostvector given
-            return list(map(lambda p: p.boost(boostvector), momenta))
+        #A single boostvector given
+        if type(boostby)==Vector3D:
+            return list(map(lambda p: p.boost(boostby), momenta))
+        elif type(boostby)==LorentzVector:
+            return list(map(lambda p: p.boost(boostby.boostvector), momenta))
         else:
-            #Assume boostvector is a list / array TODO treat/check other possibilities if needed
-            return list(map(lambda p, beta: p.boost(beta), momenta, boostvector))
+            #Assume boostvector is a list / array
+            return list(map(lambda p, beta: p.boost(beta), momenta, boostby))
+            #TODO treat/check other possibilities if needed
+    
     else:
-        return momenta.boostCM_of_beta3(boostvector)
-
+    
+        #Ensure wrapper class used instead of superobject
+        if type(boostby)==MomentumObject4D:
+            boostby = LorentzVector(px=boostby.x, py=boostby.y, pz=boostby.z, e=boostby.t)
+        elif type(boostby)==MomentumObject3D:
+            boostby = Vector3D(x=boostby.x, y=boostby.y, z=boostby.z)
+        
+        #Return values depending on input format
+        if type(boostby)==LorentzVector:
+            if type(momenta)==LorentzVector:
+                return momenta.boost(boostby.boostvector)
+            else: return momenta.boost_beta3(boostby.boostvector)
+        elif type(boostby)==Vector3D:
+            if type(momenta)==LorentzVector:
+                return momenta.boost(boostby)
+            else: return momenta.boost_beta3(boostby)
+        elif type(boostby) in [VectorNumpy4D,MomentumNumpy4D]:
+            print('*** DEBUG 2 ***',type(momenta))
+            return momenta.boost_beta3(skheparray({'x':boostby.x/boostby.t,\
+                                                        'y':boostby.y/boostby.t,\
+                                                        'z':boostby.z/boostby.t}))
+        elif type(boostby) in [VectorNumpy3D,MomentumNumpy3D]:
+            return momenta.boost_beta3(skheparray({'x':boostby.x,\
+                                                        'y':boostby.y,\
+                                                        'z':boostby.z}))
+        else:
+            print('WARNING boostLorentzArray: unspecified type '+str(type(boostby)))
+            #Default solution: float array w/ first index corresponding to x,y,z,t
+            return momenta.boost_beta3(skheparray({'x':boostby[0]/boostby[3],\
+                                                        'y':boostby[1]/boostby[3],\
+                                                        'z':boostby[2]/boostby[3]}))
+            
 ##############################################
 ##############################################
 #  Utility Class
@@ -1208,8 +1309,6 @@ class Model(Utility):
 #  DECAY Class
 ##############################################
 ##############################################
-#TODO the decay functions returning particle/momentum lists should return skheparrays where possible
-#TODO also other simple optimization tricks available
 class Decay():
 
     ###############################
@@ -1275,8 +1374,6 @@ class Decay():
         px2 = momentum2 * np.sqrt(1.-np.power(costheta_arr,2)) * np.cos(phi_arr)
         p2 = LorentzArray({'px':px2,'py':py2,'pz':pz2,'energy':en2})
         
-        #TODO for further optimization, consider case where p0 is a skheparray / LorentzArray
-        
         #check if an array of initial state particle momenta was given, or a single momentum
         try:
             p0len = len(p0)
@@ -1286,28 +1383,25 @@ class Decay():
         except: arr_p0 = False
         
         #assert initial state particle momenta/momentum datatype
-        #FIXME the below assumes a single p0, not an array. If both p0 and other pars are arrays, 
-        #      they must be of the same length, and each par variation corresponds to a p0 of it's own.
+        #If both p0 & other pars are arrays, dim must agree: each par corresponds to a p0 of it's own
         p0_ = p0
-        if type(p0_)!=LorentzVector and not arr_p0: p0_ = LorentzVector(px=p0.x,py=p0.y,pz=p0.z,e=p0.e)
+        if not arr_p0 and type(p0_)!=LorentzVector: p0_ = LorentzVector(px=p0.x,py=p0.y,pz=p0.z,e=p0.e)
         
-        #get axis of p0
+        #get angle and axis of p0
         zaxis=Vector3D(0,0,1)
-        rotaxis=zaxis.cross(p0_.vector).unit()
-        rotangle=zaxis.angle(p0_.vector)
+        rotangle = get_rotangle(refax=zaxis, p4=p0_)
+        rotaxis  = get_rotaxis( refax=zaxis, p4=p0_)
         
         #Rotate
         p1 = rotateLorentzArray(momenta=p1,rotangle=rotangle,rotaxis=rotaxis)
         p2 = rotateLorentzArray(momenta=p2,rotangle=rotangle,rotaxis=rotaxis)
         
         #boost in p0 restframe
-        p1_ = boostLorentzArray(momenta=p1,boostvector=-1.*p0_.boostvector)
-        p2_ = boostLorentzArray(momenta=p2,boostvector=-1.*p0_.boostvector)
+        p1_ = boostLorentzArray(momenta=p1,boostby=-1.*p0_)
+        p2_ = boostLorentzArray(momenta=p2,boostby=-1.*p0_)
 
         #Return array or LorentzVectors depending on input angles's datatypes
-        #TODO more efficient if we'd just convert all calls of such functions to assume output is array
-        #TODO consider possibility that p0 is a list/array
-        if arr_pars: return p1_,p2_
+        if arr_pars or arr_p0: return p1_,p2_
         else: return LorentzVector(p1_[0].px,p1_[0].py,p1_[0].pz,p1_[0].e),\
                      LorentzVector(p2_[0].px,p2_[0].py,p2_[0].pz,p2_[0].e)
 
@@ -1533,10 +1627,7 @@ class Decay():
         #Decay meson and V
         particles=[]
         p_1,p_q = self.twobody_decay(p_mother,m0,m1,q,phiM,cosM)
-        for i in range(nsample):
-            #TODO could optimize further if p_q could also be given as an array
-            p_2,p_3 = self.twobody_decay(p_q[i],q[i],m2,m3,phiQ[i],cosQ[i])
-            particles.append(p_3)
+        _,particles = self.twobody_decay(p_q,q,m2,m3,phiQ,cosQ)
             
         #branching fraction
         brval = eval(br)
@@ -1608,7 +1699,7 @@ class Decay():
         ENmin = (m232min + q**2 - m2**2 - m1**2)/(2*m0)
         
         #energy = np.array(list(map(self.rng.uniform,ENmin,ENmax)))
-        #FIXME replace w/ above, then also remove energy from the _ in range(nsample) loop above
+        #TODO replace w/ above, then also remove energy from the _ in range(nsample) loop above
         energy = energy*(ENmax-ENmin) + ENmin
 
         # get LLP momenta
@@ -1730,7 +1821,6 @@ class Decay():
         #cosM = np.array(list(map(self.rng.uniform,[     -1.]*nsample,[     1.]*nsample)
         #phiM = np.array(list(map(self.rng.uniform,[-math.pi]*nsample,[math.pi]*nsample)
         #TODO replace below w/ above
-        #TODO optimize using similar methods as decay_in_restframe_3body_dq2dcosth
         cosI,phiI,cosM,phiM=[],[],[],[]
         for i in range(nsample):
             #FIXME self.rng.random
@@ -1740,11 +1830,8 @@ class Decay():
             phiM.append(random.uniform(-math.pi,math.pi))
 
         # numerical integration TODO integration? Is integral actually used anywhere?
-        #TODO can be optimized further
-        for i in range(nsample):
-            p_1,p_I=self.twobody_decay(p_mother,m0 ,m1,mI ,phiM[i],cosM[i])
-            p_2,p_3=self.twobody_decay(p_I     ,mI ,m2,m3 ,phiI[i],cosI[i])
-            particles.append(p_3)
+        p_1,p_I=self.twobody_decay(p_mother, m0 ,m1, mI ,phiM, cosM)
+        _,particles=self.twobody_decay(p_I, mI ,m2, m3 ,phiI, cosI)
 
         #branching fraction
         brval = br/float(nsample)

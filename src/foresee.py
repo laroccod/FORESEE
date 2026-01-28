@@ -280,7 +280,7 @@ def rotateLorentzArray(momenta,rotangle,rotaxis):
     
     Parameters
     ----------
-    momenta: [LorentzArray] / skheparray
+    momenta: [LorentzVector] / skheparray
         An array of vectors to be rotated
     rotangle: float
         The angle how much to rotate
@@ -301,22 +301,23 @@ def rotateLorentzArray(momenta,rotangle,rotaxis):
         else:
             #Rotate each vector in momentum by dedicated angles and axes
             return list(map(lambda p, alpha, ax: p.rotate(alpha,ax), momenta, rotangle, rotaxis))
-            #TODO support for other combinations if required: list of angles but one axis / vice-versa
     else:
         #skheparray supports lists of angles / 3D vector skheparrays out-of-the-box (rotates elementwise)
         return momenta.rotate_axis(rotaxis,rotangle)
 
-def boostLorentzArray(momenta,boostby):
+def boostLorentzArray(momenta,boostby,boostfactor):
     """
     Boost all 4-momenta in an array
     
     Parameters
     ----------
-    momenta: [LorentzArray] / skheparray
+    momenta: [LorentzVector] / skheparray
         An array of vectors to be rotated
     boostby: Vector3D / [Vector3D] / LorentzVector / skheparray
         A vector by which to boost, see LorentzVector.boostvector.
-        Boosting to the rest frame of a particle typically requires a factor of -1
+    boostfactor: float
+        Apply a factor to the boost vector. E.g. boosting to a particle's rest 
+        frame typically requires a factor of -1.0
     Returns
     -------
     The boosted vectors as a list of LorentzVectors (old skhep) / skheparray (new skhep)
@@ -324,21 +325,25 @@ def boostLorentzArray(momenta,boostby):
     if _OLD_SKHEP:
         #A single boostvector given
         if type(boostby)==Vector3D:
-            return list(map(lambda p: p.boost(boostby), momenta))
+            return list(map(lambda p: p.boost(boostfactor*boostby), momenta))
         elif type(boostby)==LorentzVector:
-            return list(map(lambda p: p.boost(boostby.boostvector), momenta))
+            return list(map(lambda p: p.boost(boostfactor*boostby.boostvector), momenta))
         else:
             #Assume boostvector is a list / array
-            return list(map(lambda p, beta: p.boost(beta), momenta, boostby))
-            #TODO treat/check other possibilities if needed
+            try:
+                return list(map(lambda p, beta: p.boost(boostfactor*beta), momenta, boostby))
+            except:
+                return list(map(lambda p, beta: p.boost(boostfactor*beta.boostvector), momenta, boostby))
     
     else:
-    
+
         #Ensure wrapper class used instead of superobject
         if type(boostby)==MomentumObject4D:
             boostby = LorentzVector(px=boostby.x, py=boostby.y, pz=boostby.z, e=boostby.t)
         elif type(boostby)==MomentumObject3D:
             boostby = Vector3D(x=boostby.x, y=boostby.y, z=boostby.z)
+        
+        boostby = boostfactor*boostby
         
         #Return values depending on input format
         if type(boostby)==LorentzVector:
@@ -351,18 +356,18 @@ def boostLorentzArray(momenta,boostby):
             else: return momenta.boost_beta3(boostby)
         elif type(boostby) in [VectorNumpy4D,MomentumNumpy4D]:
             return momenta.boost_beta3(skheparray({'x':boostby.x/boostby.t,\
-                                                        'y':boostby.y/boostby.t,\
-                                                        'z':boostby.z/boostby.t}))
+                                                   'y':boostby.y/boostby.t,\
+                                                   'z':boostby.z/boostby.t}))
         elif type(boostby) in [VectorNumpy3D,MomentumNumpy3D]:
             return momenta.boost_beta3(skheparray({'x':boostby.x,\
-                                                        'y':boostby.y,\
-                                                        'z':boostby.z}))
+                                                   'y':boostby.y,\
+                                                   'z':boostby.z}))
         else:
             print('WARNING boostLorentzArray: unspecified type '+str(type(boostby)))
             #Default solution: float array w/ first index corresponding to x,y,z,t
             return momenta.boost_beta3(skheparray({'x':boostby[0]/boostby[3],\
-                                                        'y':boostby[1]/boostby[3],\
-                                                        'z':boostby[2]/boostby[3]}))
+                                                   'y':boostby[1]/boostby[3],\
+                                                   'z':boostby[2]/boostby[3]}))
             
 ##############################################
 ##############################################
@@ -1401,8 +1406,8 @@ class Decay():
         p2 = rotateLorentzArray(momenta=p2,rotangle=rotangle,rotaxis=rotaxis)
         
         #boost in p0 restframe
-        p1_ = boostLorentzArray(momenta=p1,boostby=-1.*p0_)
-        p2_ = boostLorentzArray(momenta=p2,boostby=-1.*p0_)
+        p1_ = boostLorentzArray(momenta=p1,boostby=p0_,boostfactor=-1.)
+        p2_ = boostLorentzArray(momenta=p2,boostby=p0_,boostfactor=-1.)
 
         #Return array or LorentzVectors depending on input angles's datatypes
         if arr_pars or arr_p0: return p1_,p2_

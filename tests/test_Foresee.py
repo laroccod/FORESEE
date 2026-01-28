@@ -9,7 +9,7 @@ import sys, os
 src_path = "../"
 sys.path.append(src_path)
 
-from src.foresee import Utility,Model,Foresee
+from src.foresee import Utility,Model,Foresee,LorentzVector,Vector3D
 import pytest
 import numpy as np
 #import import_ipynb
@@ -199,3 +199,18 @@ def test_convert_list_to_momenta():
         assert np.isclose(p[i].py, p_ref[i]['py'], rtol=0.01)
         assert np.isclose(p[i].pz, p_ref[i]['pz'], rtol=0.01)
         assert np.isclose(p[i].e , p_ref[i]['E' ], rtol=0.01)
+
+#@pytest.mark.skip  #Uncomment decorator to disable this test
+def test_boost():
+    
+    #Test simple single vector boost
+    p4 = LorentzVector(0.,0.,0.,0.5)
+    bt = Vector3D(0.,0.,0.5)
+    p4_boosted = p4.boost(bt)
+    expect = LorentzVector(0.0, 0.0, -0.2886751, 0.5773502)
+    assert np.isclose(p4_boosted.px, expect.px, rtol=0.01)
+    assert np.isclose(p4_boosted.py, expect.py, rtol=0.01)
+    assert np.isclose(p4_boosted.pz, expect.pz, rtol=0.01)
+    assert np.isclose(p4_boosted.e,  expect.e,  rtol=0.01)
+    #TODO implement tests for boosting arrays
+    

@@ -290,16 +290,19 @@ def rotateLorentzArray(momenta,rotangle,rotaxis):
     -------
     The rotated vectors as a list of LorentzVectors (old skhep) / skheparray (new skhep)
     """
+    if type(rotangle) in [float, np.float64] and rotangle==0: return momenta
     if _OLD_SKHEP:
         if type(rotangle) in [float, np.float64]:
             #Rotate every vector in momenta by the same angle about the same axis
             return list(map(lambda p: p.rotate(rotangle,rotaxis), momenta))
+        elif type(rotaxis)==Vector3D:
+            #Rotate each vector in momentum by dedicated angles about the same axis
+            return list(map(lambda p, alpha: p.rotate(alpha,ax,rotaxis), momenta, rotangle))
         else:
-            #Rotate each vector in momentum by a dedicated angle about a dedicated axis
-            return list(map(lambda p, alpha: p.rotate(alpha,rotaxis), momenta, rotangle))
+            #Rotate each vector in momentum by dedicated angles and axes
+            return list(map(lambda p, alpha, ax: p.rotate(alpha,ax), momenta, rotangle, rotaxis))
             #TODO support for other combinations if required: list of angles but one axis / vice-versa
     else:
-        if type(rotangle) in [float, np.float64] and rotangle==0: return momenta
         #skheparray supports lists of angles / 3D vector skheparrays out-of-the-box (rotates elementwise)
         return momenta.rotate_axis(rotaxis,rotangle)
 
@@ -1374,12 +1377,14 @@ class Decay():
         p2 = LorentzArray({'px':px2,'py':py2,'pz':pz2,'energy':en2})
         
         #check if an array of initial state particle momenta was given, or a single momentum
-        try:
-            p0len = len(p0)
-            arr_p0 = True
-            if arr_pars and p0len!=arrlen:
-                print('WARNING twobody_decay p0 and other parameter array length mismatch') 
-        except: arr_p0 = False
+        if type(p0)==LorentzVector: arr_p0 = False
+        else:
+            try:
+                if type(p0[0].px) in [np.float64,float]: arr_p0 = True
+                p0len = len(p0)
+                if arr_pars and p0len!=arrlen:
+                    print('WARNING twobody_decay p0 and other parameter array length mismatch',p0len,arrlen) 
+            except: arr_p0 = False
         
         #assert initial state particle momenta/momentum datatype
         #If both p0 & other pars are arrays, dim must agree: each par corresponds to a p0 of it's own
@@ -2686,8 +2691,8 @@ class Foresee(Utility, Decay):
             f.write(str(round(momentum.px,10))+" ")
             f.write(str(round(momentum.py,10))+" ")
             f.write(str(round(momentum.pz,10))+" ")
-            f.write(str(round(momentum.e,10))+" ")
-            f.write(str(round(momentum.m,10))+" ")
+            f.write(str(round(momentum.e, 10))+" ")
+            f.write(str(round(momentum.m, 10))+" ")
             f.write(status+ " 0 0 -1 0\n")
 
             #decay products
@@ -2697,8 +2702,8 @@ class Foresee(Utility, Decay):
                 f.write(str(round(particle.px,10))+" ")
                 f.write(str(round(particle.py,10))+" ")
                 f.write(str(round(particle.pz,10))+" ")
-                f.write(str(round(particle.e,10))+" ")
-                f.write(str(round(particle.m,10))+" ")
+                f.write(str(round(particle.e, 10))+" ")
+                f.write(str(round(particle.m, 10))+" ")
                 f.write("1 0 0 0 0\n")
 
         # close file

@@ -117,8 +117,9 @@ if not _OLD_SKHEP:
             """
             Override superclass boost function return value type
             """
-            superobj = super().boost_beta3(vec3D)
-            #superobj = super().boostCM_of_beta3(vec3D)
+            #TODO ensure consistency in whether boost_beta3 or boostCM_of_beta3 should be used. More tests needed, also accounting for arrays
+            #superobj = super().boost_beta3(vec3D)
+            superobj = super().boostCM_of_beta3(vec3D)
             return LorentzVector(px=superobj.x,py=superobj.y,pz=superobj.z,e=superobj.t)
         
         def tolist(self):

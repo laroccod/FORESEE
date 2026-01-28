@@ -347,7 +347,6 @@ def boostLorentzArray(momenta,boostby):
                 return momenta.boost(boostby)
             else: return momenta.boost_beta3(boostby)
         elif type(boostby) in [VectorNumpy4D,MomentumNumpy4D]:
-            print('*** DEBUG 2 ***',type(momenta))
             return momenta.boost_beta3(skheparray({'x':boostby.x/boostby.t,\
                                                         'y':boostby.y/boostby.t,\
                                                         'z':boostby.z/boostby.t}))

@@ -152,29 +152,41 @@ def boostvector_tolist(momentum):
 
 def LorentzArray(compvecdict):
     """
-    Construct particle 4-momentum list/array
+    Construct particle 4-momentum list/array, or arrays of spatial 3D vectors
     Parameters
     ----------
     compvecdict: {str: list / np.array(float)}
         The components 
         E.g. {'px': [float,...], ..., 'energy': [float,...]}
              or
-             {'pt': [float,...], "theta": [float,...], "phi": [float,...], "energy": [float,...]}
+             {'pt': [float,...], 'theta': [float,...], 'phi': [float,...], 'energy': [float,...]}
+             or
+             {'x': [float,...], 'y': [float,...], 'phi': [float,...], 'energy': [float,...]}
     Returns
     -------
-    A list of LorentzVectors (old skhep) or a skheparray (new skhep)
+    A list of LorentzVectors (old skhep), or a skheparray (new skhep) technically corresponding to 
+    MomentumNumpy4D or MomentumNumpy3D, depending on the input arguments
     """
     if _OLD_SKHEP:
+        #4D
         if sum([key in compvecdict for key in ['px','py','pz','energy']])==4:
             return list(map(LorentzVector,compvecdict['px'    ],\
                                           compvecdict['py'    ],\
                                           compvecdict['pz'    ],\
                                           compvecdict['energy']))            
+        elif sum([key in compvecdict for key in ['x','y','z','t']])==4:
+            return list(map(LorentzVector,compvecdict['x'],\
+                                          compvecdict['y'],\
+                                          compvecdict['z'],\
+                                          compvecdict['t']))            
         elif sum([key in compvecdict for key in ['pt','theta','phi','energy']])==4:
             return list(map(LorentzVector,np.multiply(compvecdict['pt'],np.cos(compvecdict['phi'  ])),\
                                           np.multiply(compvecdict['pt'],np.sin(compvecdict['phi'  ])),\
                                           np.divide(compvecdict['pt'],np.tan(compvecdict['theta'])),\
                                           compvecdict['energy']))
+        #3D
+        elif sum([key in compvecdict for key in ['x','y','z']])==3:
+            return list(map(Vector3D,compvecdict['x'],compvecdict['y'],compvecdict['z']))            
         else:
             print('LorentzArray components must be px,py,pz,energy, returning empty list')
             return []
@@ -313,7 +325,7 @@ def boostLorentzArray(momenta,boostby,boostfactor):
     Parameters
     ----------
     momenta: [LorentzVector] / skheparray
-        An array of vectors to be rotated
+        An array of vectors to be boosted
     boostby: Vector3D / [Vector3D] / LorentzVector / skheparray
         A vector by which to boost, see LorentzVector.boostvector.
     boostfactor: float
@@ -322,6 +334,9 @@ def boostLorentzArray(momenta,boostby,boostfactor):
     Returns
     -------
     The boosted vectors as a list of LorentzVectors (old skhep) / skheparray (new skhep)
+    
+    N.B. assumes an individual boostvector for each momentum instead of
+         boosting all vectors into all boosts's directions like boostlist does!
     """
     if _OLD_SKHEP:
         #A single boostvector given
@@ -335,7 +350,6 @@ def boostLorentzArray(momenta,boostby,boostfactor):
                 return list(map(lambda p, beta: p.boost(boostfactor*beta), momenta, boostby))
             except:
                 return list(map(lambda p, beta: p.boost(boostfactor*beta.boostvector), momenta, boostby))
-    
     else:
 
         #Ensure wrapper class used instead of superobject
@@ -1937,11 +1951,25 @@ class Foresee(Utility, Decay):
         arr_particle: [ [float,float,float,float] , ... ]
             Array of particle 4 momenta to be boosted
         arr_boost: [float,float,float]
-            The amounts to boost in x,y,z directions
+            The amounts to boost in x,y,z directions.
+            The number of boosts does not need to equal the number of particles
 
         Returns
         -------
-            The boosted particles in a numpy array
+            The theta angles and magnitudes of the boosted particle momenta in a numpy array:
+            [ [particle[0] to boost[0]],
+              [particle[1] to boost[0]],
+              ... ,
+              [particle[n] to boost[0]],
+              [particle[0] to boost[1]],
+              [particle[1] to boost[1]],
+              ... ,
+              [particle[n] to boost[1]],
+              ... ,
+              [particle[0] to boost[n']],
+              ... ,
+              [particle[n] to boost[n']]]
+            with theta,|momentum|
         """
 
         # intialize output

@@ -9,7 +9,7 @@ import sys, os
 src_path = "../"
 sys.path.append(src_path)
 
-from src.foresee import Utility,Model,Foresee,LorentzVector,Vector3D
+from src.foresee import Utility,Model,Foresee,LorentzVector,Vector3D,LorentzArray,boostLorentzArray
 import pytest
 import numpy as np
 #import import_ipynb
@@ -212,5 +212,70 @@ def test_boost():
     assert np.isclose(p4_boosted.py, expect.py, rtol=0.01)
     assert np.isclose(p4_boosted.pz, expect.pz, rtol=0.01)
     assert np.isclose(p4_boosted.e,  expect.e,  rtol=0.01)
-    #TODO implement tests for boosting arrays
+
+
+def boostlist(arr_particle, arr_boost):
+    out, i = np.zeros((len(arr_particle)*len(arr_boost),2)), 0
+    for bx, by, bz in arr_boost:
+        b2 = bx**2 + by**2 + bz**2
+        gamma = 1.0 / (1.0 - b2)**0.5
+        if b2 > 0.0: gamma2 = (gamma - 1.0) / b2
+        else: gamma2 = 0.0
+        # Loop over LorentzVectors
+        for xx, xy, xz, xt in arr_particle:
+            bp = bx * xx + by * xy + bz * xz
+            xp = xx + gamma2 * bp * bx - gamma * bx * xt
+            yp = xy + gamma2 * bp * by - gamma * by * xt
+            zp = xz + gamma2 * bp * bz - gamma * bz * xt
+            tp = gamma * (xt - bp)
+            pt = np.sqrt(xp**2+yp**2)
+            th = math.pi/2 if zp==0 else np.arctan(pt/zp)
+            pm = np.sqrt(pt**2+zp**2)
+            out[i,0]= th
+            out[i,1]= pm
+            i+=1
+    return out
+
+#@pytest.mark.skip  #Uncomment decorator to disable this test
+def test_array_boosting():
+    arr_particle = [[0.,0.,0.,1.],\
+                    [0.,0.,0.,2.],\
+                    [0.,0.,0.,3.]]
+    arr_boost = [[0.,0., 0.25],\
+                 [0.,0., 0.50],\
+                 [0.,0., 0.75]]
+    """
+    N.B. for the above, the boostlist function produces the following
+      All particles in 1st boost direction
+      [ [-0.  0.25819889]
+        [-0.  0.51639778]
+        [-0.  0.77459667]
+        All particles in 2nd boost direction
+        [-0.  0.57735027]
+        [-0.  1.15470054]
+        [-0.  1.73205081]
+        All particles in 3rd boost direction
+        [-0.  1.13389342]
+        [-0.  2.26778684]
+        [-0.  3.40168026] ]
+    TODO the current boostLorentzArray reflects the behavior of MomentumNumpy4D arrays,
+    and returns three particles, each boosted into the direction of a dedicated vector.
+    If this behavior is changed to correspond to boostlist instead, the test below may 
+    be expanded to check all the numbers given above.
+    """
     
+    #Call array wrappers
+    parT = np.array(arr_particle).T
+    bstT = np.array(arr_boost).T 
+    momenta = LorentzArray({'px': parT[0], 'py': parT[1], 'pz': parT[2], 'energy': parT[3]})
+    boostby = LorentzArray({'x': bstT[0], 'y': bstT[1], 'z': bstT[2]})
+    
+    boostfactor = 1.  #N.B. typical use case is -1
+    
+    ret = boostLorentzArray(momenta=momenta,boostby=boostby,boostfactor=boostfactor)
+    #boosted = boostLorentzArray(momenta=momenta,boostby=boostby,boostfactor=boostfactor)
+    #ret = LorentzVectors_to_f_arr(momenta=boosted,mode='4D')
+    
+    assert np.isclose(ret[0].pz, 0.25819889,rtol=0.01)
+    assert np.isclose(ret[1].pz, 1.15470054,rtol=0.01)
+    assert np.isclose(ret[2].pz, 3.40168026,rtol=0.01)

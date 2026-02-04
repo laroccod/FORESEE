@@ -206,12 +206,43 @@ def test_boost():
     #Test simple single vector boost
     p4 = LorentzVector(0.,0.,0.,0.5)
     bt = Vector3D(0.,0.,0.5)
-    p4_boosted = p4.boost(bt)
     expect = LorentzVector(0.0, 0.0, -0.2886751, 0.5773502)
-    assert np.isclose(p4_boosted.px, expect.px, rtol=0.01)
-    assert np.isclose(p4_boosted.py, expect.py, rtol=0.01)
-    assert np.isclose(p4_boosted.pz, expect.pz, rtol=0.01)
-    assert np.isclose(p4_boosted.e,  expect.e,  rtol=0.01)
+    
+    p4_bt = p4.boost(bt)
+    assert np.isclose(p4_bt.px, expect.px, rtol=0.01)
+    assert np.isclose(p4_bt.py, expect.py, rtol=0.01)
+    assert np.isclose(p4_bt.pz, expect.pz, rtol=0.01)
+    assert np.isclose(p4_bt.e,  expect.e,  rtol=0.01)
+    
+    #Test LorentzVector.boostvector: should have the same boostvector as bt
+    bt4 = LorentzVector(0.,0.,1.,2.)
+    p4_bt1 = p4.boost(bt4.boostvector)
+    assert np.isclose(p4_bt1.px, expect.px, rtol=0.01)
+    assert np.isclose(p4_bt1.py, expect.py, rtol=0.01)
+    assert np.isclose(p4_bt1.pz, expect.pz, rtol=0.01)
+    assert np.isclose(p4_bt1.e,  expect.e,  rtol=0.01)
+
+    #Now try a - sign in the spatial component
+    bt_m = Vector3D(0.,0.,-0.5)
+    bt4_m = LorentzVector(0.,0.,-1.,2.)
+    expect_m = LorentzVector(0.0, 0.0, 0.2886751, 0.5773502)
+
+    p4_bt_m = p4.boost(bt_m)
+    assert np.isclose(p4_bt_m.px, expect_m.px, rtol=0.01)
+    assert np.isclose(p4_bt_m.py, expect_m.py, rtol=0.01)
+    assert np.isclose(p4_bt_m.pz, expect_m.pz, rtol=0.01)
+    assert np.isclose(p4_bt_m.e,  expect_m.e,  rtol=0.01)
+    
+    p4_bt4_m = p4.boost(bt4_m.boostvector)
+    assert np.isclose(p4_bt4_m.px, expect_m.px, rtol=0.01)
+    assert np.isclose(p4_bt4_m.py, expect_m.py, rtol=0.01)
+    assert np.isclose(p4_bt4_m.pz, expect_m.pz, rtol=0.01)
+    assert np.isclose(p4_bt4_m.e,  expect_m.e,  rtol=0.01)
+    
+    #Check boostfactor vs boostvector order of operations
+    assert (-1.*bt4_m).boostvector.z==bt4_m.boostvector.z
+    assert -1.*bt4_m.boostvector.z==-bt4_m.boostvector.z
+    
 
 #TODO rm when unnecessary
 def boostlist(arr_particle, arr_boost):
@@ -251,31 +282,31 @@ def test_array_boost_single():
 
     #Boost array of momenta by a single 3D boost
     p4_boosted_arr = boostLorentzArray(momenta=p4_arr,boostby=bt,boostfactor=boostfactor)    
-    assert np.isclose(p4_boosted_arr.px[0], expect.px, rtol=0.01)
-    assert np.isclose(p4_boosted_arr.py[0], expect.py, rtol=0.01)
-    assert np.isclose(p4_boosted_arr.pz[0], expect.pz, rtol=0.01)
-    assert np.isclose(p4_boosted_arr.e[0],  expect.e,  rtol=0.01)
+    assert np.isclose(p4_boosted_arr[0].px, expect.px, rtol=0.01)
+    assert np.isclose(p4_boosted_arr[0].py, expect.py, rtol=0.01)
+    assert np.isclose(p4_boosted_arr[0].pz, expect.pz, rtol=0.01)
+    assert np.isclose(p4_boosted_arr[0].e,  expect.e,  rtol=0.01)
     
     #Boost array of momenta by a single 4D LorentzVector (extract boostvector, check application of boostfactor)
     p4_boosted_arr1 = boostLorentzArray(momenta=p4_arr,boostby=p4bt,boostfactor=boostfactor)    
-    assert np.isclose(p4_boosted_arr1.px[0], expect.px, rtol=0.01)
-    assert np.isclose(p4_boosted_arr1.py[0], expect.py, rtol=0.01)
-    assert np.isclose(p4_boosted_arr1.pz[0], expect.pz, rtol=0.01)
-    assert np.isclose(p4_boosted_arr1.e[0],  expect.e,  rtol=0.01)
+    assert np.isclose(p4_boosted_arr1[0].px, expect.px, rtol=0.01)
+    assert np.isclose(p4_boosted_arr1[0].py, expect.py, rtol=0.01)
+    assert np.isclose(p4_boosted_arr1[0].pz, expect.pz, rtol=0.01)
+    assert np.isclose(p4_boosted_arr1[0].e,  expect.e,  rtol=0.01)
 
     #Boost array of momenta by array (3D boost element)
     p4_boosted_arr2 = boostLorentzArray(momenta=p4_arr,boostby=b3_arr,boostfactor=boostfactor)    
-    assert np.isclose(p4_boosted_arr2.px[0], expect.px, rtol=0.01)
-    assert np.isclose(p4_boosted_arr2.py[0], expect.py, rtol=0.01)
-    assert np.isclose(p4_boosted_arr2.pz[0], expect.pz, rtol=0.01)
-    assert np.isclose(p4_boosted_arr2.e[0],  expect.e,  rtol=0.01)
+    assert np.isclose(p4_boosted_arr2[0].px, expect.px, rtol=0.01)
+    assert np.isclose(p4_boosted_arr2[0].py, expect.py, rtol=0.01)
+    assert np.isclose(p4_boosted_arr2[0].pz, expect.pz, rtol=0.01)
+    assert np.isclose(p4_boosted_arr2[0].e,  expect.e,  rtol=0.01)
     
     #Boost array of momenta by array (4D boost element)
     p4_boosted_arr3 = boostLorentzArray(momenta=p4_arr,boostby=b4_arr,boostfactor=boostfactor)    
-    assert np.isclose(p4_boosted_arr3.px[0], expect.px, rtol=0.01)
-    assert np.isclose(p4_boosted_arr3.py[0], expect.py, rtol=0.01)
-    assert np.isclose(p4_boosted_arr3.pz[0], expect.pz, rtol=0.01)
-    assert np.isclose(p4_boosted_arr3.e[0],  expect.e,  rtol=0.01)
+    assert np.isclose(p4_boosted_arr3[0].px, expect.px, rtol=0.01)
+    assert np.isclose(p4_boosted_arr3[0].py, expect.py, rtol=0.01)
+    assert np.isclose(p4_boosted_arr3[0].pz, expect.pz, rtol=0.01)
+    assert np.isclose(p4_boosted_arr3[0].e,  expect.e,  rtol=0.01)
 
 @pytest.mark.skip  #Uncomment decorator to disable this test
 def test_array_boost():

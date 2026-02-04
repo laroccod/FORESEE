@@ -213,7 +213,7 @@ def test_boost():
     assert np.isclose(p4_boosted.pz, expect.pz, rtol=0.01)
     assert np.isclose(p4_boosted.e,  expect.e,  rtol=0.01)
 
-
+#TODO rm when unnecessary
 def boostlist(arr_particle, arr_boost):
     out, i = np.zeros((len(arr_particle)*len(arr_boost),2)), 0
     for bx, by, bz in arr_boost:
@@ -237,13 +237,59 @@ def boostlist(arr_particle, arr_boost):
     return out
 
 #@pytest.mark.skip  #Uncomment decorator to disable this test
-def test_array_boosting():
+def test_array_boost_single():
+    
+    #Repeat simple single vector boost test but using array boost methods
+    expect = LorentzVector(0.0, 0.0, -0.2886751, 0.5773502)
+    p4 = LorentzVector(0.,0.,0.,0.5)
+    bt = Vector3D(0.,0.,0.5)
+    p4bt = LorentzVector(0.,0.,1.,2.)  #Boostvector will have z=1./2.=0.5, equal to bt
+    p4_arr = LorentzArray({'px': [p4.px], 'py': [p4.py], 'pz': [p4.pz], 'energy': [p4.e]})
+    b3_arr = LorentzArray({'x': [bt.x], 'y': [bt.y], 'z': [bt.z]})
+    b4_arr = LorentzArray({'px': [p4bt.px], 'py': [p4bt.py], 'pz': [p4bt.z], 'energy': [p4bt.e]})
+    boostfactor = -1.
+
+    #Boost array of momenta by a single 3D boost
+    p4_boosted_arr = boostLorentzArray(momenta=p4_arr,boostby=bt,boostfactor=boostfactor)    
+    assert np.isclose(p4_boosted_arr.px[0], expect.px, rtol=0.01)
+    assert np.isclose(p4_boosted_arr.py[0], expect.py, rtol=0.01)
+    assert np.isclose(p4_boosted_arr.pz[0], expect.pz, rtol=0.01)
+    assert np.isclose(p4_boosted_arr.e[0],  expect.e,  rtol=0.01)
+    
+    #Boost array of momenta by a single 4D LorentzVector (extract boostvector, check application of boostfactor)
+    p4_boosted_arr1 = boostLorentzArray(momenta=p4_arr,boostby=p4bt,boostfactor=boostfactor)    
+    assert np.isclose(p4_boosted_arr1.px[0], expect.px, rtol=0.01)
+    assert np.isclose(p4_boosted_arr1.py[0], expect.py, rtol=0.01)
+    assert np.isclose(p4_boosted_arr1.pz[0], expect.pz, rtol=0.01)
+    assert np.isclose(p4_boosted_arr1.e[0],  expect.e,  rtol=0.01)
+
+    #Boost array of momenta by array (3D boost element)
+    p4_boosted_arr2 = boostLorentzArray(momenta=p4_arr,boostby=b3_arr,boostfactor=boostfactor)    
+    assert np.isclose(p4_boosted_arr2.px[0], expect.px, rtol=0.01)
+    assert np.isclose(p4_boosted_arr2.py[0], expect.py, rtol=0.01)
+    assert np.isclose(p4_boosted_arr2.pz[0], expect.pz, rtol=0.01)
+    assert np.isclose(p4_boosted_arr2.e[0],  expect.e,  rtol=0.01)
+    
+    #Boost array of momenta by array (4D boost element)
+    p4_boosted_arr3 = boostLorentzArray(momenta=p4_arr,boostby=b4_arr,boostfactor=boostfactor)    
+    assert np.isclose(p4_boosted_arr3.px[0], expect.px, rtol=0.01)
+    assert np.isclose(p4_boosted_arr3.py[0], expect.py, rtol=0.01)
+    assert np.isclose(p4_boosted_arr3.pz[0], expect.pz, rtol=0.01)
+    assert np.isclose(p4_boosted_arr3.e[0],  expect.e,  rtol=0.01)
+
+@pytest.mark.skip  #Uncomment decorator to disable this test
+def test_array_boost():
+    
+    #Test array boost methods for multiple particles and boosts
     arr_particle = [[0.,0.,0.,1.],\
                     [0.,0.,0.,2.],\
                     [0.,0.,0.,3.]]
-    arr_boost = [[0.,0., 0.25],\
-                 [0.,0., 0.50],\
-                 [0.,0., 0.75]]
+    arr_boost3 = [[0.,0., 0.25],\
+                  [0.,0., 0.50],\
+                  [0.,0., 0.75]]
+    arr_boost4 = [[0.,0., 1., 4.],\
+                  [0.,0., 1., 2.],\
+                  [0.,0., 3., 4.]]
     """
     N.B. for the above, the boostlist function produces the following
       All particles in 1st boost direction
@@ -263,19 +309,26 @@ def test_array_boosting():
     If this behavior is changed to correspond to boostlist instead, the test below may 
     be expanded to check all the numbers given above.
     """
+    expect = [0.25819889, 1.15470054, 3.40168026]
     
     #Call array wrappers
     parT = np.array(arr_particle).T
-    bstT = np.array(arr_boost).T 
-    momenta = LorentzArray({'px': parT[0], 'py': parT[1], 'pz': parT[2], 'energy': parT[3]})
-    boostby = LorentzArray({'x': bstT[0], 'y': bstT[1], 'z': bstT[2]})
+    bst3T = np.array(arr_boost3).T 
+    bst4T = np.array(arr_boost4).T 
+    momenta  = LorentzArray({'px':  parT[0], 'py':  parT[1], 'pz':  parT[2], 'energy': parT[3]})
+    boostby4 = LorentzArray({'px': bst4T[0], 'py': bst4T[1], 'pz': bst4T[2], 'energy':bst4T[3]})
+    boostby3 = LorentzArray({ 'x': bst3T[0],  'y': bst3T[1],  'z': bst3T[2]})
     
-    boostfactor = 1.  #N.B. typical use case is -1
+    boostfactor = -1.  #N.B. typical use case is -1
     
-    ret = boostLorentzArray(momenta=momenta,boostby=boostby,boostfactor=boostfactor)
-    #boosted = boostLorentzArray(momenta=momenta,boostby=boostby,boostfactor=boostfactor)
-    #ret = LorentzVectors_to_f_arr(momenta=boosted,mode='4D')
-    
-    assert np.isclose(ret[0].pz, 0.25819889,rtol=0.01)
-    assert np.isclose(ret[1].pz, 1.15470054,rtol=0.01)
-    assert np.isclose(ret[2].pz, 3.40168026,rtol=0.01)
+    #Boost array of momenta by an array of 3-vector boosts
+    boosted3 = boostLorentzArray(momenta=momenta,boostby=boostby3,boostfactor=boostfactor)
+    assert np.isclose(boosted3[0].pz,expect[0],rtol=0.01)
+    assert np.isclose(boosted3[1].pz,expect[1],rtol=0.01)
+    assert np.isclose(boosted3[2].pz,expect[2],rtol=0.01)
+
+    #Boost array of momenta by an array of 4-vectors (extract boostvectors and check application of boostfactor)
+    boosted4 = boostLorentzArray(momenta=momenta,boostby=boostby4,boostfactor=boostfactor)
+    assert np.isclose(boosted4[0].pz,expect[0],rtol=0.01)
+    assert np.isclose(boosted4[1].pz,expect[1],rtol=0.01)
+    assert np.isclose(boosted4[2].pz,expect[2],rtol=0.01)

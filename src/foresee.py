@@ -343,13 +343,13 @@ def boostLorentzArray(momenta,boostby,boostfactor):
         if type(boostby)==Vector3D:
             return list(map(lambda p: p.boost(boostfactor*boostby), momenta))
         elif type(boostby)==LorentzVector:
-            return list(map(lambda p: p.boost(boostfactor*boostby.boostvector), momenta))
+            return list(map(lambda p: p.boost(boostfactor*(boostby.boostvector)), momenta))  #TODO check
         else:
             #Assume boostvector is a list / array
             try:
                 return list(map(lambda p, beta: p.boost(boostfactor*beta), momenta, boostby))
             except:
-                return list(map(lambda p, beta: p.boost(boostfactor*beta.boostvector), momenta, boostby))
+                return list(map(lambda p, beta: p.boost(boostfactor*(beta.boostvector)), momenta, boostby))
     else:
 
         #Ensure wrapper class used instead of superobject
@@ -357,26 +357,30 @@ def boostLorentzArray(momenta,boostby,boostfactor):
             boostby = LorentzVector(px=boostby.x, py=boostby.y, pz=boostby.z, e=boostby.t)
         elif type(boostby)==MomentumObject3D:
             boostby = Vector3D(x=boostby.x, y=boostby.y, z=boostby.z)
-        
-        boostby = boostfactor*boostby
+        else:
+            boostby = boostby
         
         #Return values depending on input format
+        #N.B. calling boostvector (in _OLD_SKHEP implementation and wrapper here) cancels boostfactor,
+        #     since the resulting 3-vector components are x/t,y/t,z/t, and multiplying a LorentzVector by
+        #     a constant affects both spatial and temporal entries: -1.*(x,y,z,t) = (-x,-y,-z,-t).
+        #     However, boostfactors are included here in all cases for clarity and consistency.
         if type(boostby)==LorentzVector:
             if type(momenta)==LorentzVector:
-                return momenta.boost(boostby.boostvector)
-            else: return momenta.boost_beta3(boostby.boostvector)
+                return momenta.boost(boostby.boostvector)               #boostfactor canceled by boostvector
+            else: return momenta.boostCM_of_beta3(boostby.boostvector)  #boostfactor canceled by boostvector
         elif type(boostby)==Vector3D:
             if type(momenta)==LorentzVector:
-                return momenta.boost(boostby)
-            else: return momenta.boost_beta3(boostby)
+                return momenta.boost(boostfactor*boostby)   #TODO
+            else: return momenta.boostCM_of_beta3(boostby)  #TODO
         elif type(boostby) in [VectorNumpy4D,MomentumNumpy4D]:
-            return momenta.boost_beta3(skheparray({'x':boostby.x/boostby.t,\
-                                                   'y':boostby.y/boostby.t,\
-                                                   'z':boostby.z/boostby.t}))
+            return momenta.boostCM_of_beta3(skheparray({'x':boostby.x/boostby.t,\
+                                                        'y':boostby.y/boostby.t,\
+                                                        'z':boostby.z/boostby.t}))
         elif type(boostby) in [VectorNumpy3D,MomentumNumpy3D]:
-            return momenta.boost_beta3(skheparray({'x':boostby.x,\
-                                                   'y':boostby.y,\
-                                                   'z':boostby.z}))
+            return momenta.boostCM_of_beta3(skheparray({'x':boostby.x,\
+                                                        'y':boostby.y,\
+                                                        'z':boostby.z}))
         else:
             print('WARNING boostLorentzArray: unspecified type '+str(type(boostby)))
             #Default solution: float array w/ first index corresponding to x,y,z,t

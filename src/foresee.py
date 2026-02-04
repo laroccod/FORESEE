@@ -117,8 +117,6 @@ if not _OLD_SKHEP:
             """
             Override superclass boost function return value type
             """
-            #TODO ensure consistency in whether boost_beta3 or boostCM_of_beta3 should be used. More tests needed, also accounting for arrays
-            #superobj = super().boost_beta3(vec3D)
             superobj = super().boostCM_of_beta3(vec3D)
             return LorentzVector(px=superobj.x,py=superobj.y,pz=superobj.z,e=superobj.t)
         
@@ -383,9 +381,9 @@ def boostLorentzArray(momenta,boostby,boostfactor):
         else:
             print('WARNING boostLorentzArray: unspecified type '+str(type(boostby)))
             #Default solution: float array w/ first index corresponding to x,y,z,t
-            return momenta.boost_beta3(skheparray({'x':boostfactor*boostby[0]/boostby[3],\
-                                                   'y':boostfactor*boostby[1]/boostby[3],\
-                                                   'z':boostfactor*boostby[2]/boostby[3]}))
+            return momenta.boostCM_of_beta3(skheparray({'x':boostfactor*boostby[0]/boostby[3],\
+                                                        'y':boostfactor*boostby[1]/boostby[3],\
+                                                        'z':boostfactor*boostby[2]/boostby[3]}))
             
 ##############################################
 ##############################################

@@ -274,11 +274,11 @@ def test_array_boost_single():
     expect = LorentzVector(0.0, 0.0, -0.2886751, 0.5773502)
     p4 = LorentzVector(0.,0.,0.,0.5)
     bt = Vector3D(0.,0.,0.5)
-    p4bt = LorentzVector(0.,0.,1.,2.)  #Boostvector will have z=1./2.=0.5, equal to bt
+    p4bt = LorentzVector(0.,0.,0.5,1.)  #Boostvector will have z=1./2.=0.5, equal to bt
     p4_arr = LorentzArray({'px': [p4.px], 'py': [p4.py], 'pz': [p4.pz], 'energy': [p4.e]})
     b3_arr = LorentzArray({'x': [bt.x], 'y': [bt.y], 'z': [bt.z]})
     b4_arr = LorentzArray({'px': [p4bt.px], 'py': [p4bt.py], 'pz': [p4bt.z], 'energy': [p4bt.e]})
-    boostfactor = -1.
+    boostfactor = 1.
 
     #Boost array of momenta by a single 3D boost
     p4_boosted_arr = boostLorentzArray(momenta=p4_arr,boostby=bt,boostfactor=boostfactor)    
@@ -308,7 +308,7 @@ def test_array_boost_single():
     assert np.isclose(p4_boosted_arr3[0].pz, expect.pz, rtol=0.01)
     assert np.isclose(p4_boosted_arr3[0].e,  expect.e,  rtol=0.01)
 
-@pytest.mark.skip  #Uncomment decorator to disable this test
+#@pytest.mark.skip  #Uncomment decorator to disable this test
 def test_array_boost():
     
     #Test array boost methods for multiple particles and boosts

@@ -6,7 +6,15 @@ import math
 import random
 import time
 import types
-from skhep.math.vectors import LorentzVector, Vector3D
+try:
+    from skhep.math.vectors import LorentzVector, Vector3D
+    _OLD_SKHEP = True
+except:
+    from vector import MomentumObject3D,MomentumObject4D
+    from vector import VectorNumpy3D,VectorNumpy4D
+    from vector import MomentumNumpy3D,MomentumNumpy4D
+    from vector import array as skheparray
+    _OLD_SKHEP = False    
 from scipy import interpolate
 from matplotlib import gridspec
 from numba import jit
@@ -14,7 +22,382 @@ from particle import Particle
 
 ##############################################
 ##############################################
-#  Utilitiy Class
+#  Classes for skhep backwards compatibility
+##############################################
+##############################################
+
+if not _OLD_SKHEP:
+
+    class Vector3D(MomentumObject3D):
+        def __init__(self, x, y, z):
+            super().__init__(x=x,y=y,z=z)
+
+        def angle(self, vec):
+            """
+            Angle between this 3-vector and another. Undefined if a vector is (0,0,0), default to 0
+            """
+            try:
+                #If a skheparray of vectors given
+                vec_len = len(vec)
+                ret = self.deltaangle(vec)
+                ret[np.isnan(ret)] = 0.  #Replace NaN values w/ zeroes
+                return ret
+            except:
+                #A single vector given
+                ret = self.deltaangle(MomentumObject3D(x=vec.x, y=vec.y, z=vec.z))
+                return ret if not math.isnan(ret) else 0.
+
+        #Override superclass function return value types
+
+        def dot(self,vec):
+            superobj = super().dot(vec)
+            try:
+                vec_len = len(vec)
+                return skheparray({'x':superobj.x,'y':superobj.y,'z':superobj.z})
+            except: return Vector3D(x=superobj.x,y=superobj.y,z=superobj.z)
+
+        def cross(self,vec):
+            try:
+                vec_len = len(vec)
+                superobj = super().cross(skheparray({'x':vec.x,'y':vec.y,'z':vec.z}))
+                return skheparray({'x':superobj.x,'y':superobj.y,'z':superobj.z})
+            except:
+                superobj = super().cross(vec)
+                return Vector3D(x=superobj.x,y=superobj.y,z=superobj.z)
+
+        def unit(self):
+            superobj = super().unit()
+            return Vector3D(x=superobj.x,y=superobj.y,z=superobj.z)
+
+        #Override left and right multiplication s.t. we can do e.g. -1.*Vector3D
+        def __mul__(self,val):
+            ret = super().__mul__(val)
+            return Vector3D(x=ret.x,y=ret.y,z=ret.z)
+        def __rmul__(self,val):
+            return self.__mul__(val)
+
+
+        def tolist(self):
+            """
+            Turn a Vector3D object into a list of numbers
+            """
+            return [self.x, self.y, self.z]
+        
+    class LorentzVector(MomentumObject4D):
+        
+        def __init__(self, px, py, pz, e):
+            super().__init__(x=px,y=py,z=pz,t=e)
+                
+        @property
+        def vector(self):
+            """
+            Previous LorentzVector.vector returned a 3-momentum, not the whole 4-vector
+            """
+            return Vector3D(x=self.x, y=self.y, z=self.z)
+
+        def rotate(self,angle,axis):
+            superobj = super().rotate_axis(axis=axis,angle=angle)
+            return LorentzVector(px=superobj.x,py=superobj.y,pz=superobj.z,e=superobj.t)
+        
+        #Override left and right multiplication s.t. we can do e.g. -1.*LorentzVector
+        #Note however that this reproduces the behavior -1.*(x,y,z,t)=(-x,-y,-z,-t)
+        #instead of flipping the spatial components, which is often useful for boosts
+        def __mul__(self,val):
+            ret = super().__mul__(val)
+            return LorentzVector(px=ret.x,py=ret.y,pz=ret.z,e=ret.t)
+        def __rmul__(self,val):
+            return self.__mul__(val)
+        
+        @property
+        def boostvector(self):
+            """
+            Previous LorentzVector.vector could also return a 3-vector useful for boosts
+            
+            N.B. vector package has many alternatives for boost(), and they cannot all be 
+            overridden. Therefore, although boosting 4-vectors with other 4-vectors
+            may be more optimal according to scikit vector documentation
+            (https://vector.readthedocs.io/en/latest/src/vector4d.html)
+            it is recommended to use LorentzVector.boost(Vector3D), which will internally
+            turn 3D vector into 4D, call the relevant function in the super class, and ensure
+            a LorentzVector is returned instead of an instance of the super class.
+            """
+            return Vector3D(x=self.x/self.t,y=self.y/self.t,z=self.z/self.t)
+
+        def boost(self,vec3D):
+            """
+            Override superclass boost function return value type
+            """
+            superobj = super().boostCM_of_beta3(vec3D)
+            return LorentzVector(px=superobj.x,py=superobj.y,pz=superobj.z,e=superobj.t)
+        
+        def tolist(self):
+            """
+            Turn a LorentzVector object into a list of numbers
+            """
+            return [self.px, self.py, self.pz, self.E]
+
+        
+##############################################
+##############################################
+#  AUX functions wrapping skhep version deps 
+##############################################
+##############################################
+
+def boostvector_tolist(momentum):
+    """
+    Turn the boostvector of a LorentzVector object into a list of floats
+    Parameters
+    ----------
+    momentum: LorentzVector
+        The 4-vector whose boost vector to extract
+    Returns
+    -------
+    A list of 3 floats
+    """
+    boostvec = momentum.boostvector
+    return [boostvec.x, boostvec.y, boostvec.z]
+
+
+def LorentzArray(compvecdict):
+    """
+    Construct particle 4-momentum list/array, or arrays of spatial 3D vectors
+    Parameters
+    ----------
+    compvecdict: {str: list / np.array(float)}
+        The components 
+        E.g. {'px': [float,...], ..., 'energy': [float,...]}
+             or
+             {'pt': [float,...], 'theta': [float,...], 'phi': [float,...], 'energy': [float,...]}
+             or
+             {'x': [float,...], 'y': [float,...], 'phi': [float,...], 'energy': [float,...]}
+    Returns
+    -------
+    A list of LorentzVectors (old skhep), or a skheparray (new skhep) technically corresponding to 
+    MomentumNumpy4D or MomentumNumpy3D, depending on the input arguments
+    """
+    if _OLD_SKHEP:
+        #4D
+        if sum([key in compvecdict for key in ['px','py','pz','energy']])==4:
+            return list(map(LorentzVector,compvecdict['px'    ],\
+                                          compvecdict['py'    ],\
+                                          compvecdict['pz'    ],\
+                                          compvecdict['energy']))            
+        elif sum([key in compvecdict for key in ['x','y','z','t']])==4:
+            return list(map(LorentzVector,compvecdict['x'],\
+                                          compvecdict['y'],\
+                                          compvecdict['z'],\
+                                          compvecdict['t']))            
+        elif sum([key in compvecdict for key in ['pt','theta','phi','energy']])==4:
+            return list(map(LorentzVector,np.multiply(compvecdict['pt'],np.cos(compvecdict['phi'  ])),\
+                                          np.multiply(compvecdict['pt'],np.sin(compvecdict['phi'  ])),\
+                                          np.divide(compvecdict['pt'],np.tan(compvecdict['theta'])),\
+                                          compvecdict['energy']))
+        #3D
+        elif sum([key in compvecdict for key in ['x','y','z']])==3:
+            return list(map(Vector3D,compvecdict['x'],compvecdict['y'],compvecdict['z']))            
+        else:
+            print('LorentzArray components must be px,py,pz,energy, returning empty list')
+            return []
+    else:
+        return skheparray(compvecdict)
+    
+def LorentzVectors_to_f_arr(momenta,mode='4D',boostf=-1):
+    """
+    Turn a list of LorentzVector objects (old skhep) or skheparray 
+    (new skhep) into np.array(float) suitable for efficient numerics
+
+    Parameters
+    ----------
+    momenta: [[LorentzVector/Vector3D],...] / skheparray / [[float,float,float,float],...] / np.array
+        A list of momentum vectors
+    mode: string
+        Indicates if the input momenta are '4D' or '3D' vectors, or 'boost' to return boostvectors 
+    boostf: float
+        Constant multiplier. Defaults to -1 often required for rest frame boosts
+    Returns
+    -------
+    A numpy array of lists w/ 4 floats: np.array([ [px,py,pz,E], ... ])
+    """
+        
+    if len(momenta)==0: return np.array([])
+    if _OLD_SKHEP or type(momenta[0]) in [LorentzVector, Vector3D]:
+        if mode=='boost':
+            return boostf*np.array(list(map(lambda p: boostvector_tolist(p), momenta)))
+        else:  #3D or 4D
+            return np.array(list(map(lambda p: p.tolist(), momenta)))
+    elif not _OLD_SKHEP:
+        try:
+            if mode=='boost':
+                return boostf*np.array([momenta.to_beta3().x,momenta.to_beta3().y,momenta.to_beta3().z]).T
+            elif mode=='3D':
+                return np.array([momenta.x, momenta.y, momenta.z]).T
+            else: #4D
+                return np.array([momenta.px, momenta.py, momenta.pz, momenta.e]).T
+        except: return np.array(momenta)
+    else:
+        return np.array(momenta)  #Already list or np.array
+
+def theta_p3_f_arr(momenta):
+    """
+    Angles wrt z-axis and magnitudes of 3-momenta
+    
+    Parameters
+    ----------
+    momenta: [LorentzVector] / skheparray
+        Array of momenta from which to extract the theta angles and 3-momentum magnitudes
+    Returns
+    -------
+    A 2D np.array(float) w/ first index corresponding to particles: [ [theta, |p3|], ... ]
+    """
+    if _OLD_SKHEP:
+        return np.array(list(map(lambda p: [np.arctan(p.pt/p.pz), p.p], momenta)))
+    else:
+        return np.array([momenta.theta, momenta.p]).T
+
+def get_rotangle(refax,p4):
+    """
+    Fetch rotation angles for a 4-vector p4, or several momenta, based on a given reference axis
+
+    Parameters
+    ----------
+    refax: Vector3D
+        Reference axis, e.g. an object corresponding to the z-axis
+    p4: LorentzVector / [LorentzVector] / skheparray
+        The momentum / momenta from which to extract the angle
+    Returns
+    -------
+        If p4 is a single momentum, the angle as a float, else an array of floats
+    """
+    if _OLD_SKHEP and type(p4)==list:
+        return list(map(lambda p: refax.angle(p.vector), p4))
+    elif type(p4)==LorentzVector: return refax.angle(p4.vector)
+    #p0_ is a Vector3D or a skheparray, for which this works for array (3D or 4D) or a single p4
+    else: return refax.angle(p4)
+
+def get_rotaxis(refax,p4):
+    """
+    Fetch a rotation axis object for a 4-vector p4, or several momenta, based on a given reference axis
+
+    Parameters
+    ----------
+    refax: Vector3D
+        Reference axis, e.g. an object corresponding to the z-axis
+    p4: LorentzVector / [LorentzVector] / skheparray
+        The momentum / momenta from which to extract the axis
+    Returns
+    -------
+        If p4 is a single momentum, the rotation axis as a Vector3D, 
+        else [Vector3D] (old skhep) / skheparray (new skhep)
+    """
+    if _OLD_SKHEP and type(p4)==list:
+        return list(map(lambda p: refax.cross(p.vector).unit(), p4))
+    elif type(p4)==LorentzVector: return refax.cross(p4.vector).unit()
+    #p0_ is a Vector3D or a skheparray, for which this works for array (3D or 4D) or a single p4
+    else: return refax.cross(p4).unit()
+
+def rotateLorentzArray(momenta,rotangle,rotaxis):
+    """
+    Rotate all vectors in an array of 4-momenta
+    
+    Parameters
+    ----------
+    momenta: [LorentzVector] / skheparray
+        An array of vectors to be rotated
+    rotangle: float
+        The angle how much to rotate
+    rotaxis: Vector3D
+        The axis about which to rotate
+    Returns
+    -------
+    The rotated vectors as a list of LorentzVectors (old skhep) / skheparray (new skhep)
+    """
+    if type(rotangle) in [float, np.float64] and rotangle==0: return momenta
+    if _OLD_SKHEP:
+        if type(rotangle) in [float, np.float64]:
+            #Rotate every vector in momenta by the same angle about the same axis
+            return list(map(lambda p: p.rotate(rotangle,rotaxis), momenta))
+        elif type(rotaxis)==Vector3D:
+            #Rotate each vector in momentum by dedicated angles about the same axis
+            return list(map(lambda p, alpha: p.rotate(alpha,ax,rotaxis), momenta, rotangle))
+        else:
+            #Rotate each vector in momentum by dedicated angles and axes
+            return list(map(lambda p, alpha, ax: p.rotate(alpha,ax), momenta, rotangle, rotaxis))
+    else:
+        #skheparray supports lists of angles / 3D vector skheparrays out-of-the-box (rotates elementwise)
+        return momenta.rotate_axis(rotaxis,rotangle)
+
+def boostLorentzArray(momenta,boostby,boostfactor):
+    """
+    Boost all 4-momenta in an array
+    
+    Parameters
+    ----------
+    momenta: [LorentzVector] / skheparray
+        An array of vectors to be boosted
+    boostby: Vector3D / [Vector3D] / LorentzVector / skheparray
+        A vector by which to boost, see LorentzVector.boostvector.
+    boostfactor: float
+        Apply a factor to the boost vector. E.g. boosting to a particle's rest 
+        frame typically requires a factor of -1.0
+        N.B. to be applied on a 3-vector/boostvector, NOT a 4-vector as it would
+        cancel when calling LorentzVector.boostvector, which yields the 3-vector
+        components (x/t,y/t,z/t); multiplying a LorentzVector by the boostfactor
+        also affects t in both old and new skhep vector implementations.
+        See also the logic of boostlist and LorentzVectors_to_f_arr.
+    Returns
+    -------
+    The boosted vectors as a list of LorentzVectors (old skhep)/skheparray (new)
+    
+    N.B. assumes an individual boostvector for each momentum instead of
+         boosting all vectors into all boosts's directions like boostlist does!
+    """
+    if _OLD_SKHEP:
+        #A single boostvector given
+        if type(boostby)==Vector3D:
+            return list(map(lambda p: p.boost(boostfactor*boostby), momenta))
+        elif type(boostby)==LorentzVector:
+            return list(map(lambda p: p.boost(boostfactor*(boostby.boostvector)), momenta))
+        else:
+            #Assume boostvector is a list / array
+            try:
+                return list(map(lambda p, beta: p.boost(boostfactor*beta), momenta, boostby))
+            except:
+                return list(map(lambda p, beta: p.boost(boostfactor*(beta.boostvector)), momenta, boostby))
+    else:
+
+        #Ensure wrapper class used instead of superobject
+        if type(boostby)==MomentumObject4D:
+            boostby = LorentzVector(px=boostby.x, py=boostby.y, pz=boostby.z, e=boostby.t)
+        elif type(boostby)==MomentumObject3D:
+            boostby = Vector3D(x=boostby.x, y=boostby.y, z=boostby.z)
+        
+        #Return values depending on input format
+        if type(boostby)==LorentzVector:
+            if type(momenta)==LorentzVector:
+                return momenta.boost(boostfactor*(boostby.boostvector))
+            else: return momenta.boostCM_of_beta3(boostfactor*(boostby.boostvector))
+        elif type(boostby)==Vector3D:
+            if type(momenta)==LorentzVector:
+                return momenta.boost(boostfactor*boostby)
+            else: return momenta.boostCM_of_beta3(boostfactor*boostby)
+        elif type(boostby) in [VectorNumpy4D,MomentumNumpy4D]:
+            return momenta.boostCM_of_beta3(skheparray({'x':boostfactor*boostby.x/boostby.t,\
+                                                        'y':boostfactor*boostby.y/boostby.t,\
+                                                        'z':boostfactor*boostby.z/boostby.t}))
+        elif type(boostby) in [VectorNumpy3D,MomentumNumpy3D]:
+            return momenta.boostCM_of_beta3(skheparray({'x':boostfactor*boostby.x,\
+                                                        'y':boostfactor*boostby.y,\
+                                                        'z':boostfactor*boostby.z}))
+        else:
+            print('WARNING boostLorentzArray: unspecified type '+str(type(boostby)))
+            #Default solution: float array w/ first index corresponding to x,y,z,t
+            return momenta.boostCM_of_beta3(skheparray({'x':boostfactor*boostby[0]/boostby[3],\
+                                                        'y':boostfactor*boostby[1]/boostby[3],\
+                                                        'z':boostfactor*boostby[2]/boostby[3]}))
+            
+##############################################
+##############################################
+#  Utility Class
 ##############################################
 ##############################################
 
@@ -253,7 +636,9 @@ class Utility():
         filetype: str
             Datatype suffix for filenames, w/o/ dot, e.g. "txt"
         nsample: int
-            Number of Monte Carlo samples to add into particles, and to divide weights by
+            Number of Monte Carlo samples to add into particles, and to divide weights by.
+            Each entry in the filename(s) then results in nsample particles, so the total number
+            of particles returned in the end will be [the amount in list] x nsample
         preselectioncuts: str / None
             Expression defining cuts to be used e.g. "th<0.01 and p>100"
         nocuts: bool
@@ -263,41 +648,50 @@ class Utility():
 
         Returns
         -------
-            Particles as LorentzVectors and an array of weights
+            Particles as a list of LorentzVectors if _OLD_SKHEP (skheparray if new), 
+            and weights as an np.array of np.arrays. The weight subarray index 
+            corresponds to alternative cross sections / weights per particle
         """
         #read file
         list_logth, list_logp, list_xs = self.read_list_momenta_weights(filenames=filenames, filetype=filetype, extend_to_low_pt_scale=None)
 
-        particles, weights = [], []
+        phis,ths,pts,ens,weights = [],[],[],[],[]
         for logth,logp,xs in zip(list_logth,list_logp, list_xs):
-
+            
             if nocuts==False and max(xs) < 10.**-6: continue
             p  = 10.**logp
             th = 10.**logth
-            pt = p * np.sin(th)
-
+            
             if nocuts==False and preselectioncut is not None:
                 if not eval(preselectioncut): continue
 
-            for n in range(nsample):
-                phi= self.rng.uniform(-math.pi,math.pi)
-                fth = 10**self.rng.uniform(-0.025, 0.025)
-                fp  = 10**self.rng.uniform(-0.025, 0.025)
+            #Sample random variables
+            phis.append(np.array(list(map(self.rng.uniform,[-math.pi]*nsample,[math.pi]*nsample))))
+            fthrand = np.array(list(map(self.rng.uniform,[-0.025]*nsample,[0.025]*nsample)))
+            fprand  = np.array(list(map(self.rng.uniform,[-0.025]*nsample,[0.025]*nsample)))
+            fth = np.power(10,fthrand)
+            fp  = np.power(10,fprand )
+            
+            #Angles, 3-momentum magnitudes and transverse momenta for constructing 4-momenta
+            th_sm = np.multiply(th,fth)
+            p_sm  = np.multiply(p, fp )
+            ths.append(th_sm)
+            pts.append(np.multiply(p_sm, np.sin(th_sm)))
+            ens.append(np.sqrt(np.add(p_sm**2,mass**2)))
+            
+            weights.append( np.ones((nsample,1)) * np.array(xs)/float(nsample) )
+                
+        #Flatten
+        phis = np.concatenate(phis)
+        ths  = np.concatenate(ths)
+        ens  = np.concatenate(ens)
+        pts  = np.concatenate(pts)
 
-                th_sm=th*fth
-                p_sm=p*fp
+        #Construct particle 4-momentum list/array
+        particles = LorentzArray({"pt": pts, "theta": ths, "phi": phis, "energy": ens})
 
-                en = math.sqrt(p_sm**2+mass**2)
-                pz = p_sm*np.cos(th_sm)
-                pt = p_sm*np.sin(th_sm)
-                px = pt*np.cos(phi)
-                py = pt*np.sin(phi)
-                part=LorentzVector(px,py,pz,en)
+        return particles, np.concatenate(weights)
 
-                particles.append(part)
-                weights.append([w/float(nsample) for w in xs])
-
-        return particles, np.array(weights)
 
     def get_hist_list(self, tx, px, weights, prange):
         """
@@ -397,7 +791,7 @@ class Utility():
 
         Parameters
         ----------
-        momenta: [LorentzVector] / ndarray of length 4 or 2
+        momenta: [LorentzVector] / skheparray (new skhep) / ndarray of length 4 or 2
             List of 4-momenta
         weights: numpy array of floats
             Weights for each entry in the histo
@@ -428,7 +822,13 @@ class Utility():
         elif type(momenta) == np.ndarray and len(momenta[0]) == 2:
             tx, px = momenta.T
         else:
-            print ("Error: momenta provided in unknown format!")
+            try:
+                #Covers new skhep skheparray case
+                tx = momenta.theta
+                px = momenta.p
+            except:
+                tx,px = np.array([]), np.array([])
+                print ("Error: momenta provided in unknown format: "+str(type(momenta)))
 
         # get_hist_list in
         list_t, list_p, list_w = self.get_hist_list(tx, px, weights, prange=prange )
@@ -942,7 +1342,6 @@ class Model(Utility):
 #  DECAY Class
 ##############################################
 ##############################################
-
 class Decay():
 
     ###############################
@@ -953,58 +1352,93 @@ class Decay():
         """
         Function that decays p0 -> p1 p2 and returns p1,p2
 
+        Note that if more than one of m0,m1,m2,phi,costheta are given as arrays, the dimensions of any 
+        two arrays must agree. The manipulations of energies and momenta below are designed to work
+        with numpy array syntax, which performs operations element-by-element.
+
         Parameters
         ----------
-        p0: LorentzVector
+        p0: LorentzVector / [LorentzVector] / skheparray
             Initial state particle 4-momentum
-        m0: float
+        m0: float / np.array(float)
             Mass of the incoming particle
-        m1: float
+        m1: float / np.array(float)
             First final state particle mass
-        m2: float
+        m2: float / np.array(float)
             Second final state particle mass
-        phi: float
+        phi: float / np.array(float)
             Azimuthal angle
             Must be within (-pi, pi)
-        costheta: float
+        costheta: float / np.array(float)
             Cosine of the polar angle
             Must be within (-1., 1.)
-
+        
         Returns
         -------
-            Boosted p1,p2 as LorentzVectors
+            Boosted p1,p2 as LorentzVectors if phi & costheta are floats, or if input variables 
+            are arrays, return a list of LorentzVectors (old skhep) / skheparray (new skhep)
         """
-
-        #get axis of p0
-        zaxis=Vector3D(0,0,1)
-        rotaxis=zaxis.cross(p0.vector).unit()
-        rotangle=zaxis.angle(p0.vector)
-
+                
+        #check if parameters given as float or arrays/lists
+        arr_pars = sum([type(var) in [list,np.ndarray] for var in[m0,m1,m2,phi,costheta]])>0
+        arrlen = max(list(map(lambda var: len(np.array([var]).ravel()), [costheta,phi,m0,m1,m2])))
+                
         #energy and momentum of p2 in the rest frame of p0
+        #N.B. if any m are arrays, both energy1,2 & momentum1,2 will also be, and so also px,py,pz,en
         energy1   = (m0*m0+m1*m1-m2*m2)/(2.*m0)
         energy2   = (m0*m0-m1*m1+m2*m2)/(2.*m0)
-        momentum1 = math.sqrt(energy1*energy1-m1*m1)
-        momentum2 = math.sqrt(energy2*energy2-m2*m2)
+        momentum1 = np.sqrt(energy1*energy1-m1*m1)
+        momentum2 = np.sqrt(energy2*energy2-m2*m2)
 
-        #4-momentum of p1 and p2 in the rest frame of p0
-        en1 = energy1
-        pz1 = momentum1 * costheta
-        py1 = momentum1 * math.sqrt(1.-costheta*costheta) * np.sin(phi)
-        px1 = momentum1 * math.sqrt(1.-costheta*costheta) * np.cos(phi)
-        p1=LorentzVector(-px1,-py1,-pz1,en1)
-        if rotangle!=0: p1=p1.rotate(rotangle,rotaxis)
+        #for uniform internal handling in case m aren't arrays, turn angles into arrays s.t. at
+        #least one term in px,py,pz,en expressions below is an np.array, making px,py,pz,en np.arrays
+        costheta_arr = np.array([costheta]).ravel()
+        phi_arr = np.array([phi]).ravel() 
 
-        en2 = energy2
-        pz2 = momentum2 * costheta
-        py2 = momentum2 * math.sqrt(1.-costheta*costheta) * np.sin(phi)
-        px2 = momentum2 * math.sqrt(1.-costheta*costheta) * np.cos(phi)
-        p2=LorentzVector(px2,py2,pz2,en2)
-        if rotangle!=0: p2=p2.rotate(rotangle,rotaxis)
+        #4-momenta of p1 and p2 in the rest frame of p0
+        en1 = energy1*np.ones(arrlen)
+        pz1 = momentum1 * costheta_arr
+        py1 = momentum1 * np.sqrt(1.-np.power(costheta_arr,2)) * np.sin(phi_arr)
+        px1 = momentum1 * np.sqrt(1.-np.power(costheta_arr,2)) * np.cos(phi_arr)
+        p1 = LorentzArray({'px':-px1,'py':-py1,'pz':-pz1,'energy':en1})        
+        en2 = energy2*np.ones(arrlen)
+        pz2 = momentum2 * costheta_arr
+        py2 = momentum2 * np.sqrt(1.-np.power(costheta_arr,2)) * np.sin(phi_arr)
+        px2 = momentum2 * np.sqrt(1.-np.power(costheta_arr,2)) * np.cos(phi_arr)
+        p2 = LorentzArray({'px':px2,'py':py2,'pz':pz2,'energy':en2})
+        
+        #check if an array of initial state particle momenta was given, or a single momentum
+        if type(p0)==LorentzVector: arr_p0 = False
+        else:
+            try:
+                if type(p0[0].px) in [np.float64,float]: arr_p0 = True
+                p0len = len(p0)
+                if arr_pars and p0len!=arrlen:
+                    print('WARNING twobody_decay p0 and other parameter array length mismatch',p0len,arrlen) 
+            except: arr_p0 = False
+        
+        #assert initial state particle momenta/momentum datatype
+        #If both p0 & other pars are arrays, dim must agree: each par corresponds to a p0 of it's own
+        p0_ = p0
+        if not arr_p0 and type(p0_)!=LorentzVector: p0_ = LorentzVector(px=p0.x,py=p0.y,pz=p0.z,e=p0.e)
+        
+        #get angle and axis of p0
+        zaxis=Vector3D(0,0,1)
+        rotangle = get_rotangle(refax=zaxis, p4=p0_)
+        rotaxis  = get_rotaxis( refax=zaxis, p4=p0_)
+        
+        #Rotate
+        p1 = rotateLorentzArray(momenta=p1,rotangle=rotangle,rotaxis=rotaxis)
+        p2 = rotateLorentzArray(momenta=p2,rotangle=rotangle,rotaxis=rotaxis)
+        
+        #boost in p0 restframe
+        p1_ = boostLorentzArray(momenta=p1,boostby=p0_,boostfactor=-1.)
+        p2_ = boostLorentzArray(momenta=p2,boostby=p0_,boostfactor=-1.)
 
-        #boost p2 in p0 restframe
-        p1_=p1.boost(-1.*p0.boostvector)
-        p2_=p2.boost(-1.*p0.boostvector)
-        return p1_,p2_
+        #Return array or LorentzVectors depending on input angles's datatypes
+        if arr_pars or arr_p0: return p1_,p2_
+        else: return LorentzVector(p1_[0].px,p1_[0].py,p1_[0].pz,p1_[0].e),\
+                     LorentzVector(p2_[0].px,p2_[0].py,p2_[0].pz,p2_[0].e)
 
     def threebody_decay_pure_phase_space(self, p0, m0, m1, m2, m3):
         """
@@ -1061,14 +1495,14 @@ class Decay():
             p3 = LorentzVector(mom3*costh13,-mom3*sinth13,0,e3)
             break
 
-        #randomly rotation of p2, p3 around p1
+        #random rotation of p2, p3 around p1
         xaxis=Vector3D(1,0,0)
         phi = self.rng.uniform(-math.pi,math.pi)
         p1=p1.rotate(phi,xaxis)
         p2=p2.rotate(phi,xaxis)
         p3=p3.rotate(phi,xaxis)
 
-        #randomly rotation of p1 in ref frame
+        #random rotation of p1 in ref frame
         phi = self.rng.uniform(-math.pi,math.pi)
         costh = self.rng.uniform(-1,1)
         theta = np.arccos(costh)
@@ -1083,7 +1517,7 @@ class Decay():
         p1_=p1.boost(-1.*p0.boostvector)
         p2_=p2.boost(-1.*p0.boostvector)
         p3_=p3.boost(-1.*p0.boostvector)
-
+        
         return p1_, p2_, p3_
 
     ###############################
@@ -1112,19 +1546,23 @@ class Decay():
             List of particle 4-momenta, list of weights resulting from branching fraction divided by MC sample size
         """
         # prepare output
-        particles, weights = [], []
+        particles = []
+        weights = br/nsample*np.ones(nsample)
 
         #create parent 4-vector
         p_mother=LorentzVector(0,0,0,m0)
 
-        #MC sampling of angles
+        #Sample random angles
+        #cos = np.array(list(map(self.rng.uniform,     [-1.]*nsample,     [1.]*nsample)))
+        #phi = np.array(list(map(self.rng.uniform,[-math.pi]*nsample,[math.pi]*nsample)))
+        #TODO replace below w/ above: more efficient but fail tests as generation ordering differs
+        cos,phi=[],[]
         for i in range(nsample):
-            cos =self.rng.uniform(-1.,1.)
-            phi =self.rng.uniform(-math.pi,math.pi)
-            p_1,p_2=self.twobody_decay(p_mother,m0,m1,m2,phi,cos)
-            particles.append(p_2)
-            weights.append(br/nsample)
-
+            cos.append(self.rng.uniform(-1.,1.))
+            phi.append(self.rng.uniform(-math.pi,math.pi))
+        
+        _,particles = self.twobody_decay(p_mother,m0,m1,m2,phi,cos)
+        
         return particles,weights
 
     def decay_in_restframe_3body(self, br, coupling, m0, m1, m2, m3, nsample, integration):
@@ -1192,8 +1630,6 @@ class Decay():
         -------
             List of particle 4-momenta, list of weights resulting from branching fraction divided by MC sample size
         """
-        # prepare output
-        particles, weights = [], []
 
         #create parent 4-vector
         p_mother=LorentzVector(0,0,0,m0)
@@ -1203,31 +1639,35 @@ class Decay():
         cthmin,cthmax = -1. , 1.
         mass = m3
 
-        #numerical integration
-        integral=0
+        #Sample kinematic variables
+        #q2   = np.array(list(map(self.rng.uniform,[q2min   ]*nsample,[q2max  ]*nsample)))
+        #cth  = np.array(list(map(self.rng.uniform,[cthmin  ]*nsample,[cthmax ]*nsample)))
+        #phiQ = np.array(list(map(self.rng.uniform,[-math.pi]*nsample,[math.pi]*nsample)))
+        #cosM = np.array(list(map(self.rng.uniform,[-1.     ]*nsample,[1.     ]*nsample)))
+        #phiM = np.array(list(map(self.rng.uniform,[-math.pi]*nsample,[math.pi]*nsample)))
+        #TODO replace below w/ above: more efficient but generation order differs
+        q2,cth,phiQ,cosM,phiM = [],[],[],[],[]
         for i in range(nsample):
-
-            #Get kinematic Variables
-            q2 = self.rng.uniform(q2min,q2max)
-            cth = self.rng.uniform(cthmin,cthmax)
-            th = np.arccos(cth)
-            q  = math.sqrt(q2)
-
-            #decay meson and V
-            cosQ =cth
-            phiQ =self.rng.uniform(-math.pi,math.pi)
-            cosM =self.rng.uniform(-1.,1.)
-            phiM =self.rng.uniform(-math.pi,math.pi)
-            p_1,p_q=self.twobody_decay(p_mother,m0 ,m1,q  ,phiM,cosM)
-            p_2,p_3=self.twobody_decay(p_q     ,q  ,m2,m3 ,phiQ,cosQ)
-
-            #branching fraction
-            brval  = eval(br)
-            brval *= (q2max-q2min)*(cthmax-cthmin)/float(nsample)
-
-            #save
-            particles.append(p_3)
-            weights.append(brval)
+            q2  .append(self.rng.uniform(q2min,   q2max  ))
+            cth .append(self.rng.uniform(cthmin,  cthmax ))
+            phiQ.append(self.rng.uniform(-math.pi,math.pi))
+            cosM.append(self.rng.uniform(-1.,     1.     ))
+            phiM.append(self.rng.uniform(-math.pi,math.pi))
+        
+        #Redefinitions
+        th = np.arccos(cth)  #FIXME seems unused but definition required, should e.g. pass as parameter
+        q  = np.sqrt(q2)
+        cosQ = cth
+            
+        #Decay meson and V
+        particles=[]
+        p_1,p_q = self.twobody_decay(p_mother,m0,m1,q,phiM,cosM)
+        _,particles = self.twobody_decay(p_q,q,m2,m3,phiQ,cosQ)
+            
+        #branching fraction
+        brval = eval(br)
+        brval *= (q2max-q2min)*(cthmax-cthmin)/float(nsample)
+        weights = brval*np.ones(nsample)
 
         return particles,weights
 
@@ -1258,44 +1698,56 @@ class Decay():
         """
 
         # prepare output
-        particles, weights = [], []
+        particles = []
 
         #integration boundary
         q2min,q2max = (m2+m3)**2,(m0-m1)**2
         mass = m3
 
-        integral=0
-        for i in range(nsample):
+        #sample random variables
+        #q2    = np.array(list(map(self.rng.uniform,[   q2min]*nsample,[  q2max]*nsample)))
+        #costh = np.array(list(map(self.rng.uniform,[     -1.]*nsample,[     1.]*nsample)))
+        #phi   = np.array(list(map(self.rng.uniform,[-math.pi]*nsample,[math.pi]*nsample)))
+        #TODO replace below w/ above, more efficient but generation order differs
+        q2,costh,phi,energy=[],[],[],[]
+        for _ in range(nsample):
+            #FIXME should use self.rng.uniform instead of random.uniform
+            q2.append(random.uniform(q2min,q2max))
+            costh.append(random.uniform(-1,1))
+            phi.append(random.uniform(-math.pi,math.pi))
+            energy.append(random.uniform(0.,1.))  #Translated to ENmin, ENmax interval below
+        #Ensure np.array format
+        q2 = np.array(q2)
+        costh = np.array(costh)
+        phi = np.array(phi)
+        
+        q = np.sqrt(q2)
+        sinth = np.sqrt(1-costh**2)
+        
+        E2st = (q**2 - m2**2 + m3**2)/(2*q)
+        E3st = (m0**2 - q**2 - m1**2)/(2*q)
+        m232min = (E2st + E3st)**2 - (np.sqrt(E2st**2 - m3**2) + np.sqrt(E3st**2 - m1**2))**2
+        m232max = (E2st + E3st)**2 - (np.sqrt(E2st**2 - m3**2) - np.sqrt(E3st**2 - m1**2))**2
+        cthmax = (m232max + q**2 - m2**2 - m1**2)/(2*m0)
+        cthmin = (m232min + q**2 - m2**2 - m1**2)/(2*m0)
+        ENmax = (m232max + q**2 - m2**2 - m1**2)/(2*m0)
+        ENmin = (m232min + q**2 - m2**2 - m1**2)/(2*m0)
+        
+        #energy = np.array(list(map(self.rng.uniform,ENmin,ENmax)))
+        #TODO replace w/ above, then also remove energy from the _ in range(nsample) loop above
+        energy = energy*(ENmax-ENmin) + ENmin
 
-            # sample q2
-            q2 = random.uniform(q2min,q2max)
-            q  = math.sqrt(q2)
-
-            # sample energy
-            E2st = (q**2 - m2**2 + m3**2)/(2*q)
-            E3st = (m0**2 - q**2 - m1**2)/(2*q)
-            m232min = (E2st + E3st)**2 - (np.sqrt(E2st**2 - m3**2) + np.sqrt(E3st**2 - m1**2))**2
-            m232max = (E2st + E3st)**2 - (np.sqrt(E2st**2 - m3**2) - np.sqrt(E3st**2 - m1**2))**2
-            cthmax = (m232max + q**2 - m2**2 - m1**2)/(2*m0)
-            cthmin = (m232min + q**2 - m2**2 - m1**2)/(2*m0)
-            ENmax = (m232max + q**2 - m2**2 - m1**2)/(2*m0)
-            ENmin = (m232min + q**2 - m2**2 - m1**2)/(2*m0)
-            energy = random.uniform(ENmin,ENmax)
-
-            # get LLP momentum
-            costh = random.uniform(-1,1)
-            sinth = np.sqrt(1-costh**2)
-            phi = random.uniform(-math.pi,math.pi)
-            p = np.sqrt(energy**2-mass**2)
-            p_3 = LorentzVector(p*sinth*np.cos(phi),p*sinth*np.sin(phi),p*costh,energy)
-
-            #branching fraction
-            brval  = eval(br)
-            brval *= (q2max-q2min)*(ENmax-ENmin)/float(nsample)
-
-            #save
-            particles.append(p_3)
-            weights.append(brval)
+        # get LLP momenta
+        p = np.sqrt(energy**2-mass**2)
+        particles = LorentzArray({'px': p*sinth*np.cos(phi),\
+                                  'py': p*sinth*np.sin(phi),\
+                                  'pz': p*costh,\
+                                  'energy':energy})
+        
+        #branching fraction
+        brval  = eval(br)
+        brval *= (q2max-q2min)*(ENmax-ENmin)/float(nsample)
+        weights = brval*np.ones(nsample)
 
         return particles,weights
 
@@ -1333,26 +1785,34 @@ class Decay():
         emin, emax = m3, (m0**2+m3**2-(m1+m2)**2)/(2*m0)
 
         #numerical integration
-        integral=0
+        integral=0  #TODO is "integral" actually used anywhere?
+        
+        #energy = np.array(list(map(self.rng.uniform,[    emin]*nsample,[   emax]*nsample)))
+        #phi    = np.array(list(map(self.rng.uniform,[-math.pi]*nsample,[math.pi]*nsample)))
+        #costh  = np.array(list(map(self.rng.uniform,[     -1.]*nsample,[     1.]*nsample)))
+        #TODO replace below w/ above
+        energy,phi,costh = [],[],[]
         for i in range(nsample):
-
-            #sample energy
-            energy = random.uniform(emin,emax)
-
-            # get LLP momentum
-            costh = random.uniform(-1,1)
-            sinth = np.sqrt(1-costh**2)
-            phi = random.uniform(-math.pi,math.pi)
-            p = np.sqrt(energy**2-mass**2)
-            p_3 = LorentzVector(p*sinth*np.cos(phi),p*sinth*np.sin(phi),p*costh,energy)
-
-            #branching fraction
-            brval  = eval(br)
-            brval *= (emax-emin)/float(nsample)
-
-            #save
-            particles.append(p_3)
-            weights.append(brval)
+            energy.append(random.uniform(emin,emax))
+            phi.append(random.uniform(-math.pi,math.pi))  #FIXME self.rng.uniform
+            costh.append(random.uniform(-1,1))  #FIXME self.rng.uniform
+        #Ensure array format
+        energy = np.array(energy)
+        costh = np.array(costh)
+        phi = np.array(phi)
+        
+        # get LLP momenta
+        sinth = np.sqrt(1-costh**2)        
+        p = np.sqrt(energy**2-mass**2)        
+        particles = LorentzArray({'px': p*sinth*np.cos(phi),\
+                                  'py': p*sinth*np.sin(phi),\
+                                  'pz': p*costh,\
+                                  'energy': energy})
+        
+        #branching fraction
+        brval  = eval(br)
+        brval *= (emax-emin)/float(nsample)
+        weights = brval*np.ones(nsample)
 
         return(particles, weights)
 
@@ -1385,25 +1845,32 @@ class Decay():
         """
 
         # prepare output
-        particles, weights = [], []
+        particles = []
 
         # create parent 4-vector
         p_mother=LorentzVector(0,0,0,m0)
 
-        # numerical integration
+        # sample kinematic variables
+        #cosI = np.array(list(map(self.rng.uniform,[     -1.]*nsample,[     1.]*nsample)
+        #phiI = np.array(list(map(self.rng.uniform,[-math.pi]*nsample,[math.pi]*nsample)
+        #cosM = np.array(list(map(self.rng.uniform,[     -1.]*nsample,[     1.]*nsample)
+        #phiM = np.array(list(map(self.rng.uniform,[-math.pi]*nsample,[math.pi]*nsample)
+        #TODO replace below w/ above
+        cosI,phiI,cosM,phiM=[],[],[],[]
         for i in range(nsample):
-            # set kinematic Variables
-            cosI =random.uniform(-1.,1.)
-            phiI =random.uniform(-math.pi,math.pi)
-            cosM =random.uniform(-1.,1.)
-            phiM =random.uniform(-math.pi,math.pi)
-            p_1,p_I=self.twobody_decay(p_mother,m0 ,m1,mI ,phiM,cosM)
-            p_2,p_3=self.twobody_decay(p_I     ,mI ,m2,m3 ,phiI,cosI)
+            #FIXME self.rng.random
+            cosI.append(random.uniform(-1.,1.))
+            phiI.append(random.uniform(-math.pi,math.pi))
+            cosM.append(random.uniform(-1.,1.))
+            phiM.append(random.uniform(-math.pi,math.pi))
 
-            #save branching fraction and
-            brval = br/float(nsample)
-            particles.append(p_3)
-            weights.append(brval)
+        # numerical integration TODO integration? Is integral actually used anywhere?
+        p_1,p_I=self.twobody_decay(p_mother, m0 ,m1, mI ,phiM, cosM)
+        _,particles=self.twobody_decay(p_I, mI ,m2, m3 ,phiI, cosI)
+
+        #branching fraction
+        brval = br/float(nsample)
+        weights = brval*np.ones(nsample)
 
         return particles,weights
 
@@ -1495,11 +1962,25 @@ class Foresee(Utility, Decay):
         arr_particle: [ [float,float,float,float] , ... ]
             Array of particle 4 momenta to be boosted
         arr_boost: [float,float,float]
-            The amounts to boost in x,y,z directions
+            The amounts to boost in x,y,z directions.
+            The number of boosts does not need to equal the number of particles
 
         Returns
         -------
-            The boosted particles in a numpy array
+            The theta angles and magnitudes of the boosted particle momenta in a numpy array:
+            [ [particle[0] to boost[0]],
+              [particle[1] to boost[0]],
+              ... ,
+              [particle[n] to boost[0]],
+              [particle[0] to boost[1]],
+              [particle[1] to boost[1]],
+              ... ,
+              [particle[n] to boost[1]],
+              ... ,
+              [particle[0] to boost[n']],
+              ... ,
+              [particle[n] to boost[n']]]
+            with theta,|momentum|
         """
 
         # intialize output
@@ -1585,8 +2066,8 @@ class Foresee(Utility, Decay):
             momenta_llp, weights_llp = self.decay_in_restframe_3body(br, coupling, m0, m1, m2, m3, nsample, integration)
 
         # boost
-        arr_minus_boostvectors = np.array([ -1*p_mother.boostvector for p_mother in momenta_mother ])
-        arr_momenta_llp = np.array(momenta_llp)
+        arr_minus_boostvectors = LorentzVectors_to_f_arr(momenta=momenta_mother,mode='boost',boostf=-1)
+        arr_momenta_llp = LorentzVectors_to_f_arr(momenta_llp)
         momenta_lab = self.boostlist(arr_momenta_llp, arr_minus_boostvectors)
 
         # weights
@@ -1613,7 +2094,7 @@ class Foresee(Utility, Decay):
 
         Returns
         -------
-            Momenta and weights in the lab frame as numpy arrays
+            Momenta as [theta, |p3|] and weights in the lab frame as numpy arrays
         """
 
         # load details of production channel
@@ -1631,9 +2112,9 @@ class Foresee(Utility, Decay):
         filenames = [self.dirpath + "files/hadrons/"+energy+"TeV/"+gen+"/"+gen+"_"+energy+"TeV_"+pid0+".txt" for gen in generator]
         momenta_mother, weights_mother = self.convert_list_to_momenta(filenames,mass=self.masses(pid0))
 
-        # momenta
-        momenta_lab = np.array([ [np.arctan(p.pt/p.pz), p.p] for p in momenta_mother])
-
+        # z-axis angles and 3-momentum magnitudes from momenta
+        momenta_lab = theta_p3_f_arr(momenta=momenta_mother)
+            
         # weights
         if type(mixing)==str:
             mixing_angle = eval(mixing)
@@ -1686,8 +2167,8 @@ class Foresee(Utility, Decay):
             print ("did not find file:", filenames0, "or", filenames1)
             return [], []
 
-        #momenta
-        momenta_lab = np.array([[np.arctan(p.pt/p.pz), p.p] for p in momenta_llp0])
+        # z-axis angles and 3-momentum magnitudes from momenta
+        momenta_lab = theta_p3_f_arr(momenta=momenta_llp0)                
         
         # weights
         if len(condition)>1:
@@ -1941,7 +2422,8 @@ class Foresee(Utility, Decay):
             cfacs = np.array([model.get_production_scaling(key, mass, coupling, coup_ref) for coupling in couplings])
 
             # filter events that pass selection
-            momenta =np.array(momenta)
+            momenta = LorentzVectors_to_f_arr(momenta)
+            #TODO below could likely be optimized with skheparrays, if momenta not turned into arrays just yet
             position = [ [self.distance/p[2]*p[0], self.distance/p[2]*p[1], self.distance] for p in momenta]
             filtered = [(p, x, w) for p,x,w in zip(momenta, position, weights) if self.numbafunc_selection(x[0],x[1],x[2],p[0],p[1],p[2])]
             if not filtered: continue
@@ -1951,12 +2433,15 @@ class Foresee(Utility, Decay):
             weights = [w * self.numbafunc_efficiency(p[3],x[0],x[1]) * self.luminosity * 1000 for (p,x,w) in zip(momenta, positions, weights)]
 
             # loop over particles, and record probablity to decay in volume
+            # TODO could this be optimized?
             for p,w in zip(momenta, weights):
                 dbars = ctaus * p[2] / mass
                 prob_decays = np.exp(-self.lfront / dbars) - np.exp(-self.lback / dbars)
                 wgts = np.outer(cfacs * prob_decays * brs,w)
                 output_w.append(wgts)
 
+            #TODO do we want to return a list of LorentzVectors or a skheparray w/ new skhep?
+            #TODO could also have an auxiliary function doing the inverse of LorentzVectors_to_f_arr
             output_p += [LorentzVector(p[0],p[1],p[2],p[3]) for p in momenta]
 
         # prepare results directory
@@ -2038,7 +2523,8 @@ class Foresee(Utility, Decay):
             cfacs = np.array([model.get_production_scaling(key, mass, coupling, coup_ref) for coupling in couplings])
 
             # filter events that pass selection
-            momenta =np.array(momenta)
+            momenta = LorentzVectors_to_f_arr(momenta)
+            #TODO the below could likely be optimized w/ skheparray
             position = [ [self.distance/p[2]*p[0], self.distance/p[2]*p[1], self.distance] for p in momenta]
             filtered = [(p, w) for p,x,w in zip(momenta, position, weights) if self.numbafunc_selection(x[0],x[1],x[2],p[0],p[1],p[2])]
             if not filtered: continue
@@ -2048,13 +2534,15 @@ class Foresee(Utility, Decay):
             weights = [w * self.luminosity * 1000 for (p,w) in zip(momenta, weights)]
 
             # loop over particles, and record interaction probablity
+            #TODO could this be optimized?
             for p,w in zip(momenta, weights):
                 sigmaint = np.array(model.get_sigmaints(mass, couplings, p[3], self.ermin, self.ermax))
                 lamdaint = 1. / self.numberdensity / sigmaint * GeV2_in_invmeter2
                 prob_int = self.length / lamdaint
                 wgts = np.outer(cfacs * prob_int, w)
                 output_w.append(wgts)
-
+                
+            #TODO reconsider output format? Use skheparray for new skhep?
             output_p += [LorentzVector(p[0],p[1],p[2],p[3]) for p in momenta]
 
         return couplings, sum(output_w), output_p, np.transpose(np.array(output_w), (1, 0, 2))
@@ -2123,7 +2611,8 @@ class Foresee(Utility, Decay):
             cfacs = np.array([model.get_production_scaling(key, mass, coupling, coup_ref) for coupling in couplings])
 
             # filter events that pass selection
-            momenta =np.array(momenta)
+            momenta = LorentzVectors_to_f_arr(momenta)
+            #TODO could the rest of this function be optimized further w/ skheparrays? Similar to above comments
             position = [ [self.distance/p[2]*p[0], self.distance/p[2]*p[1], self.distance] for p in momenta]
             filtered = [(p, w) for p,x,w in zip(momenta, position, weights) if self.numbafunc_selection(x[0],x[1],x[2],p[0],p[1],p[2])]
             if not filtered: continue
@@ -2247,8 +2736,8 @@ class Foresee(Utility, Decay):
             f.write(str(round(momentum.px,10))+" ")
             f.write(str(round(momentum.py,10))+" ")
             f.write(str(round(momentum.pz,10))+" ")
-            f.write(str(round(momentum.e,10))+" ")
-            f.write(str(round(momentum.m,10))+" ")
+            f.write(str(round(momentum.e, 10))+" ")
+            f.write(str(round(momentum.m, 10))+" ")
             f.write(status+ " 0 0 -1 0\n")
 
             #decay products
@@ -2258,8 +2747,8 @@ class Foresee(Utility, Decay):
                 f.write(str(round(particle.px,10))+" ")
                 f.write(str(round(particle.py,10))+" ")
                 f.write(str(round(particle.pz,10))+" ")
-                f.write(str(round(particle.e,10))+" ")
-                f.write(str(round(particle.m,10))+" ")
+                f.write(str(round(particle.e, 10))+" ")
+                f.write(str(round(particle.m, 10))+" ")
                 f.write("1 0 0 0 0\n")
 
         # close file

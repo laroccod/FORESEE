@@ -20,6 +20,8 @@ from matplotlib import gridspec
 from numba import jit
 from particle import Particle
 
+
+
 ##############################################
 ##############################################
 #  Classes for skhep backwards compatibility
@@ -497,31 +499,6 @@ class Utility():
         return width*1e-3 if width!=None else 0.0
 
     ###############################
-    #  Import Function
-    ###############################
-
-    def readfile(self,filename):
-        """
-        Function that reads a table in a .txt file and converts it to a numpy array
-
-        Parameters
-        ----------
-        filename:  str
-            The name/path of the file to be read
-
-        Returns
-        -------
-        The recovered table as a numpy array
-        """
-        array = []
-        with open(filename) as f:
-            for line in f:
-                if line[0]=="#":continue
-                words = [float(elt.strip()) for elt in line.split( )]
-                array.append(words)
-        return np.array(array)
-
-    ###############################
     #  Reading/Plotting Particle Tables
     ###############################
 
@@ -615,7 +592,7 @@ class Utility():
         if type(filenames) == str: filenames=[filenames]
         list_xs = []
         for filename in filenames:
-            if filetype=="txt": list_logth, list_logp, weights = self.readfile(filename).T
+            if filetype=="txt": list_logth, list_logp, weights = np.loadtxt(filename).T
             elif filetype=="npy": list_logth, list_logp, weights = np.load(filename)
             else: print ("ERROR: cannot read file type")
             if extend_to_low_pt_scale is not None: weights = self.extend_to_low_pt(list_logth, list_logp, weights, ptmatch=extend_to_low_pt_scale)
@@ -1017,7 +994,7 @@ class Model(Utility):
         -------
             None
         """
-        data=self.readfile(self.modelpath+filename).T
+        data=np.loadtxt(self.modelpath+filename).T
         self.ctau_coupling_ref=coupling_ref
         self.ctau_function=interpolate.interp1d(data[0], data[1],fill_value="extrapolate")
 
@@ -1034,7 +1011,7 @@ class Model(Utility):
         -------
             None
         """
-        data=self.readfile(self.modelpath+filename).T
+        data=np.loadtxt(self.modelpath+filename).T
         self.ctau_coupling_ref=None
         #try:
         #    self.ctau_function=interpolate.interp2d(data[0], data[1], data[2], kind="linear",fill_value="extrapolate")
@@ -1078,7 +1055,7 @@ class Model(Utility):
         self.br_functions = {}
         if finalstates==None: finalstates=[None for _ in modes]
         for channel, filename, finalstate in zip(modes, filenames, finalstates):
-            data = self.readfile(self.modelpath+filename).T
+            data = np.loadtxt(self.modelpath+filename).T
             function = interpolate.interp1d(data[0], data[1],fill_value="extrapolate")
             self.br_functions[channel] = function
             self.br_finalstate[channel] = finalstate
@@ -1105,7 +1082,7 @@ class Model(Utility):
         self.br_functions = {}
         if finalstates==None: finalstates=[None for _ in modes]
         for channel, filename, finalstate in zip(modes, filenames, finalstates):
-            data = self.readfile(self.modelpath+filename).T
+            data = np.loadtxt(self.modelpath+filename).T
             #try:
             #    function = interpolate.interp2d(data[0], data[1], data[2], kind="linear",fill_value="extrapolate")
             #except:
@@ -3011,7 +2988,7 @@ class Foresee(Utility, Decay):
         # Existing Constraints
         for bound in bounds2:
             filename, label, posx, posy, rotation = bound
-            data=self.readfile(self.model.modelpath+"model/lines/"+filename)
+            data=np.loadtxt(self.model.modelpath+"model/lines/"+filename)
             ax.fill(data.T[0], data.T[1], color="#efefef",zorder=zorder)
             ax.plot(data.T[0], data.T[1], color="darkgray"  ,zorder=zorder,lw=1)
             zorder+=1
@@ -3019,14 +2996,14 @@ class Foresee(Utility, Decay):
         # Future sensitivities
         for projection in projections:
             filename, color, label, posx, posy, rotation = projection
-            data=self.readfile(self.model.modelpath+"model/lines/"+filename)
+            data=np.loadtxt(self.model.modelpath+"model/lines/"+filename)
             ax.plot(data.T[0], data.T[1], color=color, ls="dashed", zorder=zorder, lw=1)
             zorder+=1
 
         # Existing Constraints
         for bound in bounds:
             filename, label, posx, posy, rotation = bound
-            data=self.readfile(self.model.modelpath+"model/lines/"+filename)
+            data=np.loadtxt(self.model.modelpath+"model/lines/"+filename)
             ax.fill(data.T[0], data.T[1], color="gainsboro",zorder=zorder)
             ax.plot(data.T[0], data.T[1], color="dimgray"  ,zorder=zorder,lw=1)
             zorder+=1

@@ -3121,7 +3121,7 @@ class Foresee(Utility, Decay):
             List of dictionaries specifying each production mode, e.g.
             {"channels": "111",
              "color": "red",
-             "label": r"$\pi^0 \to \gamma A'$",
+             "label": r"$\\pi^0 \to \\gamma A'$",
              "generators": ["EPOSLHC"]},
         condition: str
             Add event weight to total if this condition is satisfied

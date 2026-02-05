@@ -242,30 +242,6 @@ def test_boost():
     #Check boostfactor vs boostvector order of operations
     assert (-1.*bt4_m).boostvector.z==bt4_m.boostvector.z
     assert -1.*bt4_m.boostvector.z==-bt4_m.boostvector.z
-    
-
-#TODO rm when unnecessary
-def boostlist(arr_particle, arr_boost):
-    out, i = np.zeros((len(arr_particle)*len(arr_boost),2)), 0
-    for bx, by, bz in arr_boost:
-        b2 = bx**2 + by**2 + bz**2
-        gamma = 1.0 / (1.0 - b2)**0.5
-        if b2 > 0.0: gamma2 = (gamma - 1.0) / b2
-        else: gamma2 = 0.0
-        # Loop over LorentzVectors
-        for xx, xy, xz, xt in arr_particle:
-            bp = bx * xx + by * xy + bz * xz
-            xp = xx + gamma2 * bp * bx - gamma * bx * xt
-            yp = xy + gamma2 * bp * by - gamma * by * xt
-            zp = xz + gamma2 * bp * bz - gamma * bz * xt
-            tp = gamma * (xt - bp)
-            pt = np.sqrt(xp**2+yp**2)
-            th = math.pi/2 if zp==0 else np.arctan(pt/zp)
-            pm = np.sqrt(pt**2+zp**2)
-            out[i,0]= th
-            out[i,1]= pm
-            i+=1
-    return out
 
 #@pytest.mark.skip  #Uncomment decorator to disable this test
 def test_array_boost_single():

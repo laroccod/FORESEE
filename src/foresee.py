@@ -69,6 +69,14 @@ if not _OLD_SKHEP:
             superobj = super().unit()
             return Vector3D(x=superobj.x,y=superobj.y,z=superobj.z)
 
+        #Override left and right multiplication s.t. we can do e.g. -1.*Vector3D
+        def __mul__(self,val):
+            ret = super().__mul__(val)
+            return Vector3D(x=ret.x,y=ret.y,z=ret.z)
+        def __rmul__(self,val):
+            return self.__mul__(val)
+
+
         def tolist(self):
             """
             Turn a Vector3D object into a list of numbers
@@ -91,7 +99,9 @@ if not _OLD_SKHEP:
             superobj = super().rotate_axis(axis=axis,angle=angle)
             return LorentzVector(px=superobj.x,py=superobj.y,pz=superobj.z,e=superobj.t)
         
-        #Override left and right multiplication s.t. we can do e.g. -1*LorentzVector
+        #Override left and right multiplication s.t. we can do e.g. -1.*LorentzVector
+        #Note however that this reproduces the behavior -1.*(x,y,z,t)=(-x,-y,-z,-t)
+        #instead of flipping the spatial components, which is often useful for boosts
         def __mul__(self,val):
             ret = super().__mul__(val)
             return LorentzVector(px=ret.x,py=ret.y,pz=ret.z,e=ret.t)

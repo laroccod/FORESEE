@@ -1648,7 +1648,7 @@ class Decay():
             phiM.append(self.rng.uniform(-math.pi,math.pi))
         
         #Redefinitions
-        th = np.arccos(cth)  #FIXME seems unused but definition required, should e.g. pass as parameter
+        th = np.arccos(cth)  #Definition required for eval(br) below
         q  = np.sqrt(q2)
         cosQ = cth
             

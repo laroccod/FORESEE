@@ -49,13 +49,6 @@ if not _OLD_SKHEP:
 
         #Override superclass function return value types
 
-        def dot(self,vec):
-            superobj = super().dot(vec)
-            try:
-                vec_len = len(vec)
-                return skheparray({'x':superobj.x,'y':superobj.y,'z':superobj.z})
-            except: return Vector3D(x=superobj.x,y=superobj.y,z=superobj.z)
-
         def cross(self,vec):
             try:
                 vec_len = len(vec)

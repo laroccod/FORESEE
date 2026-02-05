@@ -502,52 +502,7 @@ class Utility():
     #  Reading/Plotting Particle Tables
     ###############################
 
-    def extend_to_low_pt(self, list_t, list_p, list_w, ptmatch=0.5, navg=2):
-        """
-        Function to extend spectrum to low pT
-
-        Parameters
-        ----------
-        list_t: [float]
-            List of angles w.r.t z-axis
-        list_p: [float]
-            List of momenta
-        list_w: [float]
-            List of weights
-        ptmatch: float
-            Match pt at this scale
-        navg: int
-            Number of logt to average over
-
-        Returns
-        -------
-            List of resulting weights
-        """
-        # round lists and ptmatch(so that we can easily search them)
-        list_t = [round(t,3) for t in list_t]
-        list_p = [round(p,3) for p in list_p]
-        l10ptmatch = round(round(np.log10(ptmatch)/0.05)*0.05,3)
-
-        # for each energy, get 1/theta^2 * dsigma/dlog10theta, which should be constant
-        logps = np.linspace(1+0.025,5-0.025,80)
-        values = {}
-        for logp in logps:
-            rlogp = round(logp,3)
-            rlogts = [round(l10ptmatch - rlogp + i*0.05,3) for i in range(-navg,navg+1)]
-            vals = [list_w[(list_p==rlogp)*(list_t==rlogt)][0]/(10**rlogt)**2 for rlogt in rlogts]
-            values[rlogp] = np.mean(vals)
-
-        # using that, let's extrapolate to lower pT
-        list_wx = []
-        for logt, logp, w in zip(list_t, list_p, list_w):
-            rlogp, rlogt = round(logp,3), round(logt,3)
-            if  logt>l10ptmatch-logp-2.5*0.05 or logp<1:list_wx.append(w)
-            else:list_wx.append(values[rlogp]*(10**rlogt)**2)
-
-        #return results
-        return list_wx
-
-    def read_list_momenta_weights(self, filenames, filetype="txt", extend_to_low_pt_scale=None):
+    def read_list_momenta_weights(self, filenames, filetype="txt"):
         """
         Function to read file and return momenta, weights
 
@@ -558,8 +513,6 @@ class Utility():
             Files typically stored under files/hadrons/
         filetype: str
             The suffix of the input filename(s) datatype w/o/ ".", e.g. "txt"
-        extend_to_low_pt_scale: float / None
-            Scale ptmatch for computing weights using extend_to_low_pt
         Returns
         -------
             List of log10 of angle w.r.t z-axis,
@@ -573,11 +526,10 @@ class Utility():
             if filetype=="txt": list_logth, list_logp, weights = np.loadtxt(filename).T
             elif filetype=="npy": list_logth, list_logp, weights = np.load(filename)
             else: print ("ERROR: cannot read file type")
-            if extend_to_low_pt_scale is not None: weights = self.extend_to_low_pt(list_logth, list_logp, weights, ptmatch=extend_to_low_pt_scale)
             list_xs.append(weights)
         return list_logth, list_logp, np.array(list_xs).T
 
-    def convert_list_to_momenta(self,filenames,mass,filetype="txt",nsample=1,preselectioncut=None, nocuts=False, extend_to_low_pt_scale=None):
+    def convert_list_to_momenta(self,filenames,mass,filetype="txt",nsample=1,preselectioncut=None, nocuts=False):
         """
         Function that converts input files under files/hadrons/ into meson spectra
 
@@ -598,8 +550,6 @@ class Utility():
             Expression defining cuts to be used e.g. "th<0.01 and p>100"
         nocuts: bool
             Flag whether to skip applying cuts
-        extend_to_low_pt_scale: float, None
-            Scale ptmatch for computing weights using extend_to_low_pt
 
         Returns
         -------
@@ -608,7 +558,7 @@ class Utility():
             corresponds to alternative cross sections / weights per particle
         """
         #read file
-        list_logth, list_logp, list_xs = self.read_list_momenta_weights(filenames=filenames, filetype=filetype, extend_to_low_pt_scale=None)
+        list_logth, list_logp, list_xs = self.read_list_momenta_weights(filenames=filenames, filetype=filetype)
 
         phis,ths,pts,ens,weights = [],[],[],[],[]
         for logth,logp,xs in zip(list_logth,list_logp, list_xs):
@@ -2311,7 +2261,6 @@ class Foresee(Utility, Decay):
             nsample = 1,
             preselectioncuts = "th<0.01",
             coup_ref = 1,
-            extend_to_low_pt_scales = {},
         ):
         """
         The numbers of expected events in the specified detector,
@@ -2334,8 +2283,6 @@ class Foresee(Utility, Decay):
             Expression defining cuts to be used e.g. "th<0.01 and p>100"
         coup_ref: float
             Reference coupling value
-        extend_to_low_pt_scales: dict
-            Scales for extending to low pt, with productions as keys
         Returns
 
         -------
@@ -2345,8 +2292,6 @@ class Foresee(Utility, Decay):
         # setup different couplings to scan over
         model = self.model
         if modes is None: modes = {key: model.production[key]["production"] for key in model.production.keys()}
-        for key in model.production.keys():
-            if key not in extend_to_low_pt_scales: extend_to_low_pt_scales[key] = None
         nprods = max([len(modes[key]) for key in modes.keys()])
         for key in modes.keys(): modes[key] += [modes[key][0]] * (nprods - len(modes[key]))
 
@@ -2368,8 +2313,7 @@ class Foresee(Utility, Decay):
             # try Load Flux file
             try:
                 momenta, weights =self.convert_list_to_momenta(filenames=filenames, mass=mass,
-                    filetype="npy", nsample=nsample, preselectioncut=preselectioncuts,
-                    extend_to_low_pt_scale=extend_to_low_pt_scales[key])
+                    filetype="npy", nsample=nsample, preselectioncut=preselectioncuts)
             except:
                 continue
                 
@@ -2413,7 +2357,6 @@ class Foresee(Utility, Decay):
             nsample = 1,
             preselectioncuts = "th<0.01 and p>100",
             coup_ref = 1,
-            extend_to_low_pt_scales = {},
         ):
         """
         Get the expected number of signal events in the specified detector
@@ -2436,8 +2379,6 @@ class Foresee(Utility, Decay):
             Expression defining cuts to be used e.g. "th<0.01 and p>100"
         coup_ref: float
             Reference coupling value
-        extend_to_low_pt_scales: dict
-            Scales for extending to low pt, with productions as keys
 
         Returns
         -------
@@ -2447,8 +2388,6 @@ class Foresee(Utility, Decay):
         # setup different couplings to scan over
         model = self.model
         if modes is None: modes = {key: model.production[key]["production"] for key in model.production.keys()}
-        for key in model.production.keys():
-            if key not in extend_to_low_pt_scales: extend_to_low_pt_scales[key] = None
         nprods = max([len(modes[key]) for key in modes.keys()])
         for key in modes.keys(): modes[key] += [modes[key][0]] * (nprods - len(modes[key]))
 
@@ -2469,8 +2408,7 @@ class Foresee(Utility, Decay):
             try:
                 momenta, weights=self.convert_list_to_momenta(
                     filenames=filenames, mass=mass,
-                    filetype="npy", nsample=nsample, preselectioncut=preselectioncuts,
-                    extend_to_low_pt_scale=extend_to_low_pt_scales[key])
+                    filetype="npy", nsample=nsample, preselectioncut=preselectioncuts)
             except:
                 continue
                 
@@ -2557,8 +2495,7 @@ class Foresee(Utility, Decay):
             try:
                 momenta, weights=self.convert_list_to_momenta(
                     filenames=filenames, mass=mass,
-                    filetype="npy", nsample=nsample, preselectioncut=preselectioncuts,
-                    extend_to_low_pt_scale=None)
+                    filetype="npy", nsample=nsample, preselectioncut=preselectioncuts)
             except:
                 continue
                 
@@ -2761,7 +2698,7 @@ class Foresee(Utility, Decay):
 
 
     def write_events(self, mass, coupling, energy, filename=None, numberevent=10, zfront=0, nsample=1,
-        notime=True, t0=0, modes=None, return_data=False, extend_to_low_pt_scales={},
+        notime=True, t0=0, modes=None, return_data=False,
         filetype="hepmc", preselectioncuts="th<0.01", weightnames=None):
         """
         A handle to the file writing functions
@@ -2787,8 +2724,6 @@ class Foresee(Utility, Decay):
         t0=0, modes=None
         return_data: bool
             Flag whether to return data and weight information
-        extend_to_low_pt_scales: dict
-            Scales for extending to low pt, with productions as keys
         filetype: str
             Specify "hepmc" or "csv"
         preselectioncuts: str
@@ -2809,7 +2744,8 @@ class Foresee(Utility, Decay):
         if weightnames is None: weightnames = modes[list(modes.keys())[0]]
 
         # get weighted sample of LLPs
-        _, _, _, weighted_raw_data, weights = self.get_events(mass=mass, energy=energy, couplings = [coupling], nsample=nsample, modes=modes, extend_to_low_pt_scales=extend_to_low_pt_scales, preselectioncuts=preselectioncuts)
+        _, _, _, weighted_raw_data, weights = self.get_events(mass=mass, energy=energy, couplings = [coupling],
+            nsample=nsample, modes=modes, preselectioncuts=preselectioncuts)
         baseweights = weights[0].T[0]
 
         # unweight sample

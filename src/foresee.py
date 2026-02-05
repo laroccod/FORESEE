@@ -641,14 +641,19 @@ class Model(Utility):
         #except:
         nx = len(np.unique(data[0]))
         ny = int(len(data[0])/nx)
-        self.ctau_function=interpolate.interp2d(data[0].reshape(nx,ny).T[0], data[1].reshape(nx,ny)[0], data[2].reshape(nx,ny).T, kind="linear",fill_value="extrapolate")
+        #self.ctau_function=interpolate.interp2d(data[0].reshape(nx,ny).T[0], data[1].reshape(nx,ny)[0], data[2].reshape(nx,ny).T, kind="linear",fill_value="extrapolate")
+
+        ct = interpolate.RectBivariateSpline(data[0].reshape(nx,ny).T[0], data[1].reshape(nx,ny)[0], data[2].reshape(nx,ny), kx=1,ky=1)
+        self.ctau_function= lambda xnew, ynew: np.squeeze(ct(xnew, ynew).T)*1.
+        
+        
 
     def get_ctau(self,mass,coupling):
         if self.ctau_function==None:
             print ("No lifetime specified. You need to specify lifetime first!")
             return 10**10
         elif self.ctau_coupling_ref is None:
-            return self.ctau_function(mass,coupling)[0]
+            return self.ctau_function(mass,coupling)
         else:
             return self.ctau_function(mass) / coupling**2 *self.ctau_coupling_ref**2
 
@@ -711,8 +716,9 @@ class Model(Utility):
             #except:
             nx = len(np.unique(data[0]))
             ny = int(len(data[0])/nx)
-            function = interpolate.interp2d(data[0].reshape(nx,ny).T[0], data[1].reshape(nx,ny)[0], data[2].reshape(nx,ny).T, kind="linear",fill_value="extrapolate")
-            self.br_functions[channel] = function
+            #function = interpolate.interp2d(data[0].reshape(nx,ny).T[0], data[1].reshape(nx,ny)[0], data[2].reshape(nx,ny).T, kind="linear",fill_value="extrapolate")
+            function = interpolate.RectBivariateSpline(data[0].reshape(nx,ny).T[0], data[1].reshape(nx,ny)[0], data[2].reshape(nx,ny), kx=1,ky=1)
+            self.br_functions[channel] = lambda xnew, ynew: np.squeeze(function(xnew,ynew).T)
             self.br_finalstate[channel] = finalstate
 
     def get_br(self,mode,mass,coupling=1):
@@ -741,7 +747,7 @@ class Model(Utility):
         elif self.br_mode == "1D":
             return self.br_functions[mode](mass)
         elif self.br_mode == "2D":
-            return self.br_functions[mode](mass, coupling)[0]
+            return self.br_functions[mode](mass, coupling)
 
 
     ###############################
@@ -930,7 +936,7 @@ class Model(Utility):
             else: return (coupling/coupling_ref)**scaling
         if self.production[key]["type"] == "mixing":
             if scaling == "manual":
-                return eval(self.production[key]["mixing"], {"coupling":coupling})**2/eval(self.production[key]["mixing"], {"coupling":coupling_ref})**2
+                return eval(self.production[key]["mixing"], {"self":self, "np":np, "mass":mass, "coupling":coupling})**2/eval(self.production[key]["mixing"],{"self":self, "np":np, "mass":mass, "coupling":coupling_ref})**2
             else: return (coupling/coupling_ref)**scaling
         if self.production[key]["type"] == "direct":
             return (coupling/coupling_ref)**scaling

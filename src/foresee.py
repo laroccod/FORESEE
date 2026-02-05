@@ -26,6 +26,8 @@ from particle import Particle
 ##############################################
 ##############################################
 
+#TODO try moving vector and related aux functionalities to a new file
+
 if not _OLD_SKHEP:
 
     class Vector3D(MomentumObject3D):
@@ -135,6 +137,8 @@ if not _OLD_SKHEP:
 #  AUX functions wrapping skhep version deps 
 ##############################################
 ##############################################
+
+#TODO consider including these in a class instead of free functions
 
 def boostvector_tolist(momentum):
     """
@@ -1433,6 +1437,7 @@ class Decay():
         else: return LorentzVector(p1_[0].px,p1_[0].py,p1_[0].pz,p1_[0].e),\
                      LorentzVector(p2_[0].px,p2_[0].py,p2_[0].pz,p2_[0].e)
 
+    #TODO can probably be streamlined similar to the other threebody decay functions
     def threebody_decay_pure_phase_space(self, p0, m0, m1, m2, m3):
         """
         Function that decays p0 > p1 p2 p2 and returns p1,p2,p3

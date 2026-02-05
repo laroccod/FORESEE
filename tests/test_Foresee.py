@@ -200,6 +200,8 @@ def test_convert_list_to_momenta():
         assert np.isclose(p[i].pz, p_ref[i]['pz'], rtol=0.01)
         assert np.isclose(p[i].e , p_ref[i]['E' ], rtol=0.01)
 
+#TODO move vector-related tests to a new file, add tests for rotations, multiply, cross, dot, twobody decay
+
 #@pytest.mark.skip  #Uncomment decorator to disable this test
 def test_boost():
     

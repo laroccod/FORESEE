@@ -1655,7 +1655,7 @@ class Decay():
             phiM.append(self.rng.uniform(-math.pi,math.pi))
         
         #Redefinitions
-        th = np.arccos(cth)  #FIXME seems unused but definition required, should e.g. pass as parameter
+        th = np.arccos(cth)  #FIXME seems unused but definition required, should e.g. pass as parameter --> is required by eval(br)
         q  = np.sqrt(q2)
         cosQ = cth
             
@@ -1711,7 +1711,7 @@ class Decay():
         #TODO replace below w/ above, more efficient but generation order differs
         q2,costh,phi,energy=[],[],[],[]
         for _ in range(nsample):
-            #FIXME should use self.rng.uniform instead of random.uniform
+            #FIXME should use self.rng.uniform instead of random.uniform --> agree
             q2.append(random.uniform(q2min,q2max))
             costh.append(random.uniform(-1,1))
             phi.append(random.uniform(-math.pi,math.pi))

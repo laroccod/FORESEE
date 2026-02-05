@@ -502,28 +502,6 @@ class Utility():
     #  Reading/Plotting Particle Tables
     ###############################
 
-    def table2contourinput(self,data,idz=2):
-        """
-        Convert a table into input for contour plot
-
-        Parameters
-        ----------
-        data: [[float]]
-            The table to be converted
-        idz: int
-            Read z values in data from the column with index idz
-        Returns
-        -------
-            Three numpy arrays corresponding to read x, y and z values
-        """
-        ntotal=len(data)
-        ny=sum( 1 if d[0]==data[0][0] else 0 for d in data)
-        nx=sum( 1 if d[1]==data[0][1] else 0 for d in data)
-        xval = [data[ix*ny,0] for ix in range(nx)]
-        yval = [data[iy,1] for iy in range(ny)]
-        zval = [ [ data[ix*ny+iy,idz] for iy in range(ny) ] for ix in range(nx)]
-        return np.array(xval),np.array(yval),np.array(zval)
-
     def extend_to_low_pt(self, list_t, list_p, list_w, ptmatch=0.5, navg=2):
         """
         Function to extend spectrum to low pT

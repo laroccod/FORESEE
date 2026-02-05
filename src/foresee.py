@@ -1839,7 +1839,7 @@ class Foresee(Utility, Decay):
         self.numbafunc_selection = jit(nopython=True)(lambdafunc_selection)
 
         #make evaluation of efficiency faster
-        lambdastr_efficiency = f'lambda energy: {efficiency}'
+        lambdastr_efficiency = f'lambda energy,x,y: {efficiency}'
         lambdafunc_efficiency = eval(lambdastr_efficiency)
         self.numbafunc_efficiency = jit(nopython=True)(lambdafunc_efficiency)
 
@@ -1914,7 +1914,7 @@ class Foresee(Utility, Decay):
         nprods = max([len(modes[key]) for key in modes.keys()])
         for key in modes.keys(): modes[key] += [modes[key][0]] * (nprods - len(modes[key]))
 
-        #setup ctau, branchinf fractions
+        #setup ctau, branching fractions
         ctaus = np.array([model.get_ctau(mass, coupling) for coupling in couplings])
         if self.channels is None: brs = np.array([1 for coupling in couplings])
         else: brs = np.array([sum([model.get_br(channel, mass, coupling) for channel in self.channels]) for coupling in couplings])
@@ -1943,12 +1943,12 @@ class Foresee(Utility, Decay):
             # filter events that pass selection
             momenta =np.array(momenta)
             position = [ [self.distance/p[2]*p[0], self.distance/p[2]*p[1], self.distance] for p in momenta]
-            filtered = [(p, w) for p,x,w in zip(momenta, position, weights) if self.numbafunc_selection(x[0],x[1],x[2],p[0],p[1],p[2])]
+            filtered = [(p, x, w) for p,x,w in zip(momenta, position, weights) if self.numbafunc_selection(x[0],x[1],x[2],p[0],p[1],p[2])]
             if not filtered: continue
-            momenta, weights = zip(*filtered)
+            momenta, positions, weights = zip(*filtered)
 
             # weight of this event incl. lumi and efficiency
-            weights = [w * self.numbafunc_efficiency(p[3]) * self.luminosity * 1000 for (p,w) in zip(momenta, weights)]
+            weights = [w * self.numbafunc_efficiency(p[3],x[0],x[1]) * self.luminosity * 1000 for (p,x,w) in zip(momenta, positions, weights)]
 
             # loop over particles, and record probablity to decay in volume
             for p,w in zip(momenta, weights):

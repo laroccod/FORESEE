@@ -502,7 +502,7 @@ class Utility():
     #  Reading/Plotting Particle Tables
     ###############################
 
-    def read_list_momenta_weights(self, filenames, filetype="txt"):
+    def read_list_angle_momenta_weights(self, filenames, filetype="txt"):
         """
         Function to read file and return momenta, weights
 
@@ -529,7 +529,7 @@ class Utility():
             list_xs.append(weights)
         return list_logth, list_logp, np.array(list_xs).T
 
-    def convert_list_to_momenta(self,filenames,mass,filetype="txt",nsample=1,preselectioncut=None, nocuts=False):
+    def read_list_4momenta_weights(self,filenames,mass,filetype="txt",nsample=1,preselectioncut=None, nocuts=False):
         """
         Function that converts input files under files/hadrons/ into meson spectra
 
@@ -558,7 +558,7 @@ class Utility():
             corresponds to alternative cross sections / weights per particle
         """
         #read file
-        list_logth, list_logp, list_xs = self.read_list_momenta_weights(filenames=filenames, filetype=filetype)
+        list_logth, list_logp, list_xs = self.read_list_angle_momenta_weights(filenames=filenames, filetype=filetype)
 
         phis,ths,pts,ens,weights = [],[],[],[],[]
         for logth,logp,xs in zip(list_logth,list_logp, list_xs):
@@ -578,11 +578,11 @@ class Utility():
             fp  = np.power(10,fprand )
             
             #Angles, 3-momentum magnitudes and transverse momenta for constructing 4-momenta
-            th_sm = np.multiply(th,fth)
-            p_sm  = np.multiply(p, fp )
-            ths.append(th_sm)
-            pts.append(np.multiply(p_sm, np.sin(th_sm)))
-            ens.append(np.sqrt(np.add(p_sm**2,mass**2)))
+            th_smeared = np.multiply(th,fth)
+            p_smeared  = np.multiply(p, fp )
+            ths.append(th_smeared)
+            pts.append(np.multiply(p_smeared, np.sin(th_smeared)))
+            ens.append(np.sqrt(np.add(p_smeared**2,mass**2)))
             
             weights.append( np.ones((nsample,1)) * np.array(xs)/float(nsample) )
                 
@@ -596,6 +596,16 @@ class Utility():
         particles = LorentzArray({"pt": pts, "theta": ths, "phi": phis, "energy": ens})
 
         return particles, np.concatenate(weights)
+        
+    def convert_list_to_momenta(self,filenames,mass,filetype="txt",nsample=1,preselectioncut=None, nocuts=False):
+        """
+        Old name of function "read_list_4momenta_weights".
+        Please replace by "read_list_4momenta_weights".
+        Will be depreciated soon.
+        """
+        ## TODO: remov function when its safe to do so
+        print ("Warning: Foresee.convert_list_to_momenta() will be depreciated soon. Replace it with Foresee.read_list_4momenta_weights().")
+        return self.read_list_4momenta_weights(filenames,mass,filetype,nsample,preselectioncut,nocuts)
 
 
     def get_hist_list(self, tx, px, weights, prange):
@@ -617,29 +627,89 @@ class Utility():
         -------
             Lists of angles w.r.t z-axis, momenta and weights
         """
-
+        
         # define histogram
         tmin, tmax, tnum = prange[0]
         pmin, pmax, pnum = prange[1]
-        t_edges = np.logspace(tmin, tmax, num=tnum+1)
-        p_edges = np.logspace(pmin, pmax, num=pnum+1)
-        t_centers = np.logspace(tmin+0.5*(tmax-tmin)/float(tnum), tmax-0.5*(tmax-tmin)/float(tnum), num=tnum)
-        p_centers = np.logspace(pmin+0.5*(pmax-pmin)/float(pnum), pmax-0.5*(pmax-pmin)/float(pnum), num=pnum)
+        dt = (tmax - tmin) / tnum
+        dp = (pmax - pmin) / pnum
+        t_edges = np.logspace(tmin, tmax, num=tnum + 1)
+        p_edges = np.logspace(pmin, pmax, num=pnum + 1)
+        log_t_centers = np.linspace(tmin + 0.5 * dt, tmax - 0.5 * dt, num=tnum)
+        log_p_centers = np.linspace(pmin + 0.5 * dp, pmax - 0.5 * dp, num=pnum)
 
         # fill histogram
-        w, t_edges, p_edges = np.histogram2d(tx, px, weights=weights,  bins=(t_edges, p_edges))
+        w, _, _ = np.histogram2d(tx, px, weights=weights, bins=(t_edges, p_edges))
 
-        # convert back to list
-        list_t, list_p, list_w = [], [], []
-        for it,t in enumerate(t_centers):
-            for ip,p in enumerate(p_centers):
-                list_t.append(np.log10 ( t_centers[it] ) )
-                list_p.append(np.log10 ( p_centers[ip] ) )
-                list_w.append(w[it][ip])
+        # build grid of centers
+        T, P = np.meshgrid(log_t_centers, log_p_centers, indexing="ij")
 
-        # return
-        return list_t,list_p,list_w
+        # convert to desired output
+        list_t = T.ravel().tolist()
+        list_p = P.ravel().tolist()
+        list_w = w.ravel().tolist()
 
+        return list_t, list_p, list_w
+
+    def convert_to_hist_list(self,momenta,weights, do_plot=False, filename=None, prange=[[-5, 0, 100],[ 0, 4, 80]], vmin=None, vmax=None):
+        """
+        Convert list of momenta to 2D histogram, and plot
+
+        Parameters
+        ----------
+        momenta: [LorentzVector] / skheparray (new skhep) / ndarray of length 4 or 2
+            List of 4-momenta
+        weights: numpy array of floats
+            Weights for each entry in the histo
+        do_plot: bool
+            Flag whether to produce a spectrum plot based on the resulting lists or not
+        filename: str / None
+            Output filename for saving results
+        prange: [[float,float,float],[float,float,float]]
+            Lists of min, max and num for t (prange[0]) and p (prange[1])
+        vmin: float
+            Value mapped to 0 for the color map. See matplotlib.colors.LogNorm
+        vmax: float
+            Value mapped to 1 for the color map. See matplotlib.colors.LogNorm
+
+        Returns
+        -------
+            If do_plot, return pyplot object first, then lists of angles w.r.t z-axis, momenta
+            and weights. If do_plot false, only return the lists.
+        """
+
+        #preprocess data
+        if type(momenta[0])==LorentzVector:
+            tx = np.array([np.arctan(mom.pt/mom.pz) for mom in momenta])
+            px = np.array([mom.p for mom in momenta])
+        elif type(momenta) == np.ndarray and len(momenta[0]) == 4:
+            tx = np.array([math.pi/2 if zp==0 else np.arctan(np.sqrt(xp**2+yp**2)/zp) for xp,yp,zp,_ in momenta])
+            px = np.array([np.sqrt(xp**2+yp**2+zp**2) for xp,yp,zp,_ in momenta])
+        elif type(momenta) == np.ndarray and len(momenta[0]) == 2:
+            tx, px = momenta.T
+        else:
+            try:
+                #Covers new skhep skheparray case
+                tx = momenta.theta
+                px = momenta.p
+            except:
+                tx,px = np.array([]), np.array([])
+                print ("Error: momenta provided in unknown format: "+str(type(momenta)))
+
+        # get standard weighted list
+        list_t, list_p, list_w = self.get_hist_list(tx, px, weights, prange=prange )
+
+        # save file ?
+        if filename is not None:
+            print ("save data to file:", filename)
+            np.save(filename,[list_t,list_p,list_w])
+
+        # plot ?
+        if do_plot:
+            plt=self.make_spectrumplot(list_t, list_p, list_w, prange, vmin=vmin, vmax=vmax)
+            return plt, list_t,list_p,list_w
+        else:
+            return list_t,list_p,list_w
 
     def make_spectrumplot(self, list_t, list_p, list_w, prange=[[-5, 0, 100],[ 0, 4, 80]], vmin=None, vmax=None):
         """
@@ -689,68 +759,6 @@ class Utility():
         ax.set_xlim(tmin, tmax)
         ax.set_ylim(pmin, pmax)
         return plt
-
-    def convert_to_hist_list(self,momenta,weights, do_plot=False, filename=None, prange=[[-5, 0, 100],[ 0, 4, 80]], vmin=None, vmax=None):
-        """
-        Convert list of momenta to 2D histogram, and plot
-
-        Parameters
-        ----------
-        momenta: [LorentzVector] / skheparray (new skhep) / ndarray of length 4 or 2
-            List of 4-momenta
-        weights: numpy array of floats
-            Weights for each entry in the histo
-        do_plot: bool
-            Flag whether to produce a spectrum plot based on the resulting lists or not
-        filename: str / None
-            Output filename for saving results
-        prange: [[float,float,float],[float,float,float]]
-            Lists of min, max and num for t (prange[0]) and p (prange[1])
-        vmin: float
-            Value mapped to 0 for the color map. See matplotlib.colors.LogNorm
-        vmax: float
-            Value mapped to 1 for the color map. See matplotlib.colors.LogNorm
-
-        Returns
-        -------
-            If do_plot, return pyplot object first, then lists of angles w.r.t z-axis, momenta
-            and weights. If do_plot false, only return the lists.
-        """
-
-        #preprocess data
-        if type(momenta[0])==LorentzVector:
-            tx = np.array([np.arctan(mom.pt/mom.pz) for mom in momenta])
-            px = np.array([mom.p for mom in momenta])
-        elif type(momenta) == np.ndarray and len(momenta[0]) == 4:
-            tx = np.array([math.pi/2 if zp==0 else np.arctan(np.sqrt(xp**2+yp**2)/zp) for xp,yp,zp,_ in momenta])
-            px = np.array([np.sqrt(xp**2+yp**2+zp**2) for xp,yp,zp,_ in momenta])
-        elif type(momenta) == np.ndarray and len(momenta[0]) == 2:
-            tx, px = momenta.T
-        else:
-            try:
-                #Covers new skhep skheparray case
-                tx = momenta.theta
-                px = momenta.p
-            except:
-                tx,px = np.array([]), np.array([])
-                print ("Error: momenta provided in unknown format: "+str(type(momenta)))
-
-        # get_hist_list in
-        list_t, list_p, list_w = self.get_hist_list(tx, px, weights, prange=prange )
-
-        # save file ?
-        if filename is not None:
-            print ("save data to file:", filename)
-            np.save(filename,[list_t,list_p,list_w])
-
-        # plot ?
-        if do_plot:
-            plt=self.make_spectrumplot(list_t, list_p, list_w, prange, vmin=vmin, vmax=vmax)
-            return plt, list_t,list_p,list_w
-        else:
-            return list_t,list_p,list_w
-
-
 
 
 ##############################################
@@ -1071,7 +1079,7 @@ class Model(Utility):
             Collider sqrt(S) in TeV
         nsample_had: int
             Number of Monte Carlo samples to consider for mother hadrons,
-            see nsample in convert_list_to_momenta
+            see nsample in read_list_4momenta_weights
         nsample: int
             Number of Monte Carlo samples to add into particles, and to divide weights by
         label: str / None
@@ -1116,7 +1124,7 @@ class Model(Utility):
             Collider sqrt(S) in TeV
         nsample_had: int
             Number of Monte Carlo samples to consider for mother hadrons,
-            see nsample in convert_list_to_momenta
+            see nsample in read_list_4momenta_weights
         nsample: int
             Number of Monte Carlo samples to add into particles, and to divide weights by
         label: str / None
@@ -1960,7 +1968,7 @@ class Foresee(Utility, Decay):
 
         # load mother particle spectrum
         filenames = [self.dirpath + "files/hadrons/"+energy+"TeV/"+gen+"/"+gen+"_"+energy+"TeV_"+pid0+".txt" for gen in generator]
-        momenta_mother, weights_mother = self.convert_list_to_momenta(filenames,mass=self.masses(pid0), preselectioncut=preselectioncut, nsample=nsample_had)
+        momenta_mother, weights_mother = self.read_list_4momenta_weights(filenames,mass=self.masses(pid0), preselectioncut=preselectioncut, nsample=nsample_had)
 
         # get sample of LLP momenta in the mother's rest frame
         if self.model.production[key]["type"] == "2body":
@@ -2015,7 +2023,7 @@ class Foresee(Utility, Decay):
 
         # load mother particle spectrum
         filenames = [self.dirpath + "files/hadrons/"+energy+"TeV/"+gen+"/"+gen+"_"+energy+"TeV_"+pid0+".txt" for gen in generator]
-        momenta_mother, weights_mother = self.convert_list_to_momenta(filenames,mass=self.masses(pid0))
+        momenta_mother, weights_mother = self.read_list_4momenta_weights(filenames,mass=self.masses(pid0))
 
         # z-axis angles and 3-momentum magnitudes from momenta
         momenta_lab = theta_p3_f_arr(momenta=momenta_mother)
@@ -2066,8 +2074,8 @@ class Foresee(Utility, Decay):
         filenames0=[self.model.modelpath+"model/direct/"+energy+"TeV/"+config+"_"+energy+"TeV_"+str(mass0)+".txt" for config in configuration]
         filenames1=[self.model.modelpath+"model/direct/"+energy+"TeV/"+config+"_"+energy+"TeV_"+str(mass1)+".txt" for config in configuration]
         try:
-            momenta_llp0, weights_llp0 = self.convert_list_to_momenta(filenames0,mass=mass0,nocuts=True)
-            momenta_llp1, weights_llp1 = self.convert_list_to_momenta(filenames1,mass=mass1,nocuts=True)
+            momenta_llp0, weights_llp0 = self.read_list_4momenta_weights(filenames0,mass=mass0,nocuts=True)
+            momenta_llp1, weights_llp1 = self.read_list_4momenta_weights(filenames1,mass=mass1,nocuts=True)
         except:
             print ("did not find file:", filenames0, "or", filenames1)
             return [], []
@@ -2312,7 +2320,7 @@ class Foresee(Utility, Decay):
 
             # try Load Flux file
             try:
-                momenta, weights =self.convert_list_to_momenta(filenames=filenames, mass=mass,
+                momenta, weights =self.read_list_4momenta_weights(filenames=filenames, mass=mass,
                     filetype="npy", nsample=nsample, preselectioncut=preselectioncuts)
             except:
                 continue
@@ -2406,7 +2414,7 @@ class Foresee(Utility, Decay):
 
             # try Load Flux file
             try:
-                momenta, weights=self.convert_list_to_momenta(
+                momenta, weights=self.read_list_4momenta_weights(
                     filenames=filenames, mass=mass,
                     filetype="npy", nsample=nsample, preselectioncut=preselectioncuts)
             except:
@@ -2493,7 +2501,7 @@ class Foresee(Utility, Decay):
             
             # try Load Flux file
             try:
-                momenta, weights=self.convert_list_to_momenta(
+                momenta, weights=self.read_list_4momenta_weights(
                     filenames=filenames, mass=mass,
                     filetype="npy", nsample=nsample, preselectioncut=preselectioncuts)
             except:
@@ -3129,7 +3137,7 @@ class Foresee(Utility, Decay):
         """
         dirname = self.dirpath + "files/hadrons/"+energy+"TeV/"+generator+"/"
         filenames = [dirname+generator+"_"+energy+"TeV_"+pid+".txt"]
-        p,w = self.convert_list_to_momenta(filenames,mass=self.masses(pid))
+        p,w = self.read_list_4momenta_weights(filenames,mass=self.masses(pid))
         plt,_,_,_ =self.convert_to_hist_list(p,w[:,0], do_plot=True, prange=prange)
         return plt
 

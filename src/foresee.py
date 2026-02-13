@@ -114,102 +114,10 @@ class Utility():
         return width*1e-3 if width!=None else 0.0
 
     ###############################
-    #  Import Function
-    ###############################
-
-    def readfile(self,filename):
-        """
-        Function that reads a table in a .txt file and converts it to a numpy array
-
-        Parameters
-        ----------
-        filename:  str
-            The name/path of the file to be read
-
-        Returns
-        -------
-        The recovered table as a numpy array
-        """
-        array = []
-        with open(filename) as f:
-            for line in f:
-                if line[0]=="#":continue
-                words = [float(elt.strip()) for elt in line.split( )]
-                array.append(words)
-        return np.array(array)
-
-    ###############################
     #  Reading/Plotting Particle Tables
     ###############################
 
-    def table2contourinput(self,data,idz=2):
-        """
-        Convert a table into input for contour plot
-
-        Parameters
-        ----------
-        data: [[float]]
-            The table to be converted
-        idz: int
-            Read z values in data from the column with index idz
-        Returns
-        -------
-            Three numpy arrays corresponding to read x, y and z values
-        """
-        ntotal=len(data)
-        ny=sum( 1 if d[0]==data[0][0] else 0 for d in data)
-        nx=sum( 1 if d[1]==data[0][1] else 0 for d in data)
-        xval = [data[ix*ny,0] for ix in range(nx)]
-        yval = [data[iy,1] for iy in range(ny)]
-        zval = [ [ data[ix*ny+iy,idz] for iy in range(ny) ] for ix in range(nx)]
-        return np.array(xval),np.array(yval),np.array(zval)
-
-    def extend_to_low_pt(self, list_t, list_p, list_w, ptmatch=0.5, navg=2):
-        """
-        Function to extend spectrum to low pT
-
-        Parameters
-        ----------
-        list_t: [float]
-            List of angles w.r.t z-axis
-        list_p: [float]
-            List of momenta
-        list_w: [float]
-            List of weights
-        ptmatch: float
-            Match pt at this scale
-        navg: int
-            Number of logt to average over
-
-        Returns
-        -------
-            List of resulting weights
-        """
-        # round lists and ptmatch(so that we can easily search them)
-        list_t = [round(t,3) for t in list_t]
-        list_p = [round(p,3) for p in list_p]
-        l10ptmatch = round(round(np.log10(ptmatch)/0.05)*0.05,3)
-
-        # for each energy, get 1/theta^2 * dsigma/dlog10theta, which should be constant
-        logps = np.linspace(1+0.025,5-0.025,80)
-        values = {}
-        for logp in logps:
-            rlogp = round(logp,3)
-            rlogts = [round(l10ptmatch - rlogp + i*0.05,3) for i in range(-navg,navg+1)]
-            vals = [list_w[(list_p==rlogp)*(list_t==rlogt)][0]/(10**rlogt)**2 for rlogt in rlogts]
-            values[rlogp] = np.mean(vals)
-
-        # using that, let's extrapolate to lower pT
-        list_wx = []
-        for logt, logp, w in zip(list_t, list_p, list_w):
-            rlogp, rlogt = round(logp,3), round(logt,3)
-            if  logt>l10ptmatch-logp-2.5*0.05 or logp<1:list_wx.append(w)
-            else:list_wx.append(values[rlogp]*(10**rlogt)**2)
-
-        #return results
-        return list_wx
-
-    def read_list_momenta_weights(self, filenames, filetype="txt", extend_to_low_pt_scale=None):
+    def read_list_angle_momenta_weights(self, filenames, filetype="txt"):
         """
         Function to read file and return momenta, weights
 
@@ -220,8 +128,6 @@ class Utility():
             Files typically stored under files/hadrons/
         filetype: str
             The suffix of the input filename(s) datatype w/o/ ".", e.g. "txt"
-        extend_to_low_pt_scale: float / None
-            Scale ptmatch for computing weights using extend_to_low_pt
         Returns
         -------
             List of log10 of angle w.r.t z-axis,
@@ -232,14 +138,13 @@ class Utility():
         if type(filenames) == str: filenames=[filenames]
         list_xs = []
         for filename in filenames:
-            if filetype=="txt": list_logth, list_logp, weights = self.readfile(filename).T
+            if filetype=="txt": list_logth, list_logp, weights = np.loadtxt(filename).T
             elif filetype=="npy": list_logth, list_logp, weights = np.load(filename)
             else: print ("ERROR: cannot read file type")
-            if extend_to_low_pt_scale is not None: weights = self.extend_to_low_pt(list_logth, list_logp, weights, ptmatch=extend_to_low_pt_scale)
             list_xs.append(weights)
         return list_logth, list_logp, np.array(list_xs).T
 
-    def convert_list_to_momenta(self,filenames,mass,filetype="txt",nsample=1,preselectioncut=None, nocuts=False, extend_to_low_pt_scale=None):
+    def read_list_4momenta_weights(self,filenames,mass,filetype="txt",nsample=1,preselectioncut=None, nocuts=False):
         """
         Function that converts input files under files/hadrons/ into meson spectra
 
@@ -260,8 +165,6 @@ class Utility():
             Expression defining cuts to be used e.g. "th<0.01 and p>100"
         nocuts: bool
             Flag whether to skip applying cuts
-        extend_to_low_pt_scale: float, None
-            Scale ptmatch for computing weights using extend_to_low_pt
 
         Returns
         -------
@@ -270,7 +173,7 @@ class Utility():
             corresponds to alternative cross sections / weights per particle
         """
         #read file
-        list_logth, list_logp, list_xs = self.read_list_momenta_weights(filenames=filenames, filetype=filetype, extend_to_low_pt_scale=None)
+        list_logth, list_logp, list_xs = self.read_list_angle_momenta_weights(filenames=filenames, filetype=filetype)
 
         phis,ths,pts,ens,weights = [],[],[],[],[]
         for logth,logp,xs in zip(list_logth,list_logp, list_xs):
@@ -290,11 +193,11 @@ class Utility():
             fp  = np.power(10,fprand )
             
             #Angles, 3-momentum magnitudes and transverse momenta for constructing 4-momenta
-            th_sm = np.multiply(th,fth)
-            p_sm  = np.multiply(p, fp )
-            ths.append(th_sm)
-            pts.append(np.multiply(p_sm, np.sin(th_sm)))
-            ens.append(np.sqrt(np.add(p_sm**2,mass**2)))
+            th_smeared = np.multiply(th,fth)
+            p_smeared  = np.multiply(p, fp )
+            ths.append(th_smeared)
+            pts.append(np.multiply(p_smeared, np.sin(th_smeared)))
+            ens.append(np.sqrt(np.add(p_smeared**2,mass**2)))
             
             weights.append( np.ones((nsample,1)) * np.array(xs)/float(nsample) )
                 
@@ -308,6 +211,16 @@ class Utility():
         particles = LorentzArray({"pt": pts, "theta": ths, "phi": phis, "energy": ens})
 
         return particles, np.concatenate(weights)
+        
+    def convert_list_to_momenta(self,filenames,mass,filetype="txt",nsample=1,preselectioncut=None, nocuts=False):
+        """
+        Old name of function "read_list_4momenta_weights".
+        Please replace by "read_list_4momenta_weights".
+        Will be depreciated soon.
+        """
+        ## TODO: remov function when its safe to do so
+        print ("Warning: Foresee.convert_list_to_momenta() will be depreciated soon. Replace it with Foresee.read_list_4momenta_weights().")
+        return self.read_list_4momenta_weights(filenames,mass,filetype,nsample,preselectioncut,nocuts)
 
 
     def get_hist_list(self, tx, px, weights, prange):
@@ -329,29 +242,89 @@ class Utility():
         -------
             Lists of angles w.r.t z-axis, momenta and weights
         """
-
+        
         # define histogram
         tmin, tmax, tnum = prange[0]
         pmin, pmax, pnum = prange[1]
-        t_edges = np.logspace(tmin, tmax, num=tnum+1)
-        p_edges = np.logspace(pmin, pmax, num=pnum+1)
-        t_centers = np.logspace(tmin+0.5*(tmax-tmin)/float(tnum), tmax-0.5*(tmax-tmin)/float(tnum), num=tnum)
-        p_centers = np.logspace(pmin+0.5*(pmax-pmin)/float(pnum), pmax-0.5*(pmax-pmin)/float(pnum), num=pnum)
+        dt = (tmax - tmin) / tnum
+        dp = (pmax - pmin) / pnum
+        t_edges = np.logspace(tmin, tmax, num=tnum + 1)
+        p_edges = np.logspace(pmin, pmax, num=pnum + 1)
+        log_t_centers = np.linspace(tmin + 0.5 * dt, tmax - 0.5 * dt, num=tnum)
+        log_p_centers = np.linspace(pmin + 0.5 * dp, pmax - 0.5 * dp, num=pnum)
 
         # fill histogram
-        w, t_edges, p_edges = np.histogram2d(tx, px, weights=weights,  bins=(t_edges, p_edges))
+        w, _, _ = np.histogram2d(tx, px, weights=weights, bins=(t_edges, p_edges))
 
-        # convert back to list
-        list_t, list_p, list_w = [], [], []
-        for it,t in enumerate(t_centers):
-            for ip,p in enumerate(p_centers):
-                list_t.append(np.log10 ( t_centers[it] ) )
-                list_p.append(np.log10 ( p_centers[ip] ) )
-                list_w.append(w[it][ip])
+        # build grid of centers
+        T, P = np.meshgrid(log_t_centers, log_p_centers, indexing="ij")
 
-        # return
-        return list_t,list_p,list_w
+        # convert to desired output
+        list_t = T.ravel().tolist()
+        list_p = P.ravel().tolist()
+        list_w = w.ravel().tolist()
 
+        return list_t, list_p, list_w
+
+    def convert_to_hist_list(self,momenta,weights, do_plot=False, filename=None, prange=[[-5, 0, 100],[ 0, 4, 80]], vmin=None, vmax=None):
+        """
+        Convert list of momenta to 2D histogram, and plot
+
+        Parameters
+        ----------
+        momenta: [LorentzVector] / skheparray (new skhep) / ndarray of length 4 or 2
+            List of 4-momenta
+        weights: numpy array of floats
+            Weights for each entry in the histo
+        do_plot: bool
+            Flag whether to produce a spectrum plot based on the resulting lists or not
+        filename: str / None
+            Output filename for saving results
+        prange: [[float,float,float],[float,float,float]]
+            Lists of min, max and num for t (prange[0]) and p (prange[1])
+        vmin: float
+            Value mapped to 0 for the color map. See matplotlib.colors.LogNorm
+        vmax: float
+            Value mapped to 1 for the color map. See matplotlib.colors.LogNorm
+
+        Returns
+        -------
+            If do_plot, return pyplot object first, then lists of angles w.r.t z-axis, momenta
+            and weights. If do_plot false, only return the lists.
+        """
+
+        #preprocess data
+        if type(momenta[0])==LorentzVector:
+            tx = np.array([np.arctan(mom.pt/mom.pz) for mom in momenta])
+            px = np.array([mom.p for mom in momenta])
+        elif type(momenta) == np.ndarray and len(momenta[0]) == 4:
+            tx = np.array([math.pi/2 if zp==0 else np.arctan(np.sqrt(xp**2+yp**2)/zp) for xp,yp,zp,_ in momenta])
+            px = np.array([np.sqrt(xp**2+yp**2+zp**2) for xp,yp,zp,_ in momenta])
+        elif type(momenta) == np.ndarray and len(momenta[0]) == 2:
+            tx, px = momenta.T
+        else:
+            try:
+                #Covers new skhep skheparray case
+                tx = momenta.theta
+                px = momenta.p
+            except:
+                tx,px = np.array([]), np.array([])
+                print ("Error: momenta provided in unknown format: "+str(type(momenta)))
+
+        # get standard weighted list
+        list_t, list_p, list_w = self.get_hist_list(tx, px, weights, prange=prange )
+
+        # save file ?
+        if filename is not None:
+            print ("save data to file:", filename)
+            np.save(filename,[list_t,list_p,list_w])
+
+        # plot ?
+        if do_plot:
+            plt=self.make_spectrumplot(list_t, list_p, list_w, prange, vmin=vmin, vmax=vmax)
+            return plt, list_t,list_p,list_w
+        else:
+            return list_t,list_p,list_w
 
     def make_spectrumplot(self, list_t, list_p, list_w, prange=[[-5, 0, 100],[ 0, 4, 80]], vmin=None, vmax=None):
         """
@@ -401,68 +374,6 @@ class Utility():
         ax.set_xlim(tmin, tmax)
         ax.set_ylim(pmin, pmax)
         return plt
-
-    def convert_to_hist_list(self,momenta,weights, do_plot=False, filename=None, prange=[[-5, 0, 100],[ 0, 4, 80]], vmin=None, vmax=None):
-        """
-        Convert list of momenta to 2D histogram, and plot
-
-        Parameters
-        ----------
-        momenta: [LorentzVector] / skheparray (new skhep) / ndarray of length 4 or 2
-            List of 4-momenta
-        weights: numpy array of floats
-            Weights for each entry in the histo
-        do_plot: bool
-            Flag whether to produce a spectrum plot based on the resulting lists or not
-        filename: str / None
-            Output filename for saving results
-        prange: [[float,float,float],[float,float,float]]
-            Lists of min, max and num for t (prange[0]) and p (prange[1])
-        vmin: float
-            Value mapped to 0 for the color map. See matplotlib.colors.LogNorm
-        vmax: float
-            Value mapped to 1 for the color map. See matplotlib.colors.LogNorm
-
-        Returns
-        -------
-            If do_plot, return pyplot object first, then lists of angles w.r.t z-axis, momenta
-            and weights. If do_plot false, only return the lists.
-        """
-
-        #preprocess data
-        if type(momenta[0])==LorentzVector:
-            tx = np.array([np.arctan(mom.pt/mom.pz) for mom in momenta])
-            px = np.array([mom.p for mom in momenta])
-        elif type(momenta) == np.ndarray and len(momenta[0]) == 4:
-            tx = np.array([math.pi/2 if zp==0 else np.arctan(np.sqrt(xp**2+yp**2)/zp) for xp,yp,zp,_ in momenta])
-            px = np.array([np.sqrt(xp**2+yp**2+zp**2) for xp,yp,zp,_ in momenta])
-        elif type(momenta) == np.ndarray and len(momenta[0]) == 2:
-            tx, px = momenta.T
-        else:
-            try:
-                #Covers new skhep skheparray case
-                tx = momenta.theta
-                px = momenta.p
-            except:
-                tx,px = np.array([]), np.array([])
-                print ("Error: momenta provided in unknown format: "+str(type(momenta)))
-
-        # get_hist_list in
-        list_t, list_p, list_w = self.get_hist_list(tx, px, weights, prange=prange )
-
-        # save file ?
-        if filename is not None:
-            print ("save data to file:", filename)
-            np.save(filename,[list_t,list_p,list_w])
-
-        # plot ?
-        if do_plot:
-            plt=self.make_spectrumplot(list_t, list_p, list_w, prange, vmin=vmin, vmax=vmax)
-            return plt, list_t,list_p,list_w
-        else:
-            return list_t,list_p,list_w
-
-
 
 
 ##############################################
@@ -634,7 +545,7 @@ class Model(Utility):
         -------
             None
         """
-        data=self.readfile(self.modelpath+filename).T
+        data=np.loadtxt(self.modelpath+filename).T
         self.ctau_coupling_ref=coupling_ref
         self.ctau_function=interpolate.interp1d(data[0], data[1],fill_value="extrapolate")
 
@@ -651,7 +562,7 @@ class Model(Utility):
         -------
             None
         """
-        data=self.readfile(self.modelpath+filename).T
+        data=np.loadtxt(self.modelpath+filename).T
         self.ctau_coupling_ref=None
         #try:
         #    self.ctau_function=interpolate.interp2d(data[0], data[1], data[2], kind="linear",fill_value="extrapolate")
@@ -695,7 +606,7 @@ class Model(Utility):
         self.br_functions = {}
         if finalstates==None: finalstates=[None for _ in modes]
         for channel, filename, finalstate in zip(modes, filenames, finalstates):
-            data = self.readfile(self.modelpath+filename).T
+            data = np.loadtxt(self.modelpath+filename).T
             function = interpolate.interp1d(data[0], data[1],fill_value="extrapolate")
             self.br_functions[channel] = function
             self.br_finalstate[channel] = finalstate
@@ -722,7 +633,7 @@ class Model(Utility):
         self.br_functions = {}
         if finalstates==None: finalstates=[None for _ in modes]
         for channel, filename, finalstate in zip(modes, filenames, finalstates):
-            data = self.readfile(self.modelpath+filename).T
+            data = np.loadtxt(self.modelpath+filename).T
             #try:
             #    function = interpolate.interp2d(data[0], data[1], data[2], kind="linear",fill_value="extrapolate")
             #except:
@@ -783,7 +694,7 @@ class Model(Utility):
             Collider sqrt(S) in TeV
         nsample_had: int
             Number of Monte Carlo samples to consider for mother hadrons,
-            see nsample in convert_list_to_momenta
+            see nsample in read_list_4momenta_weights
         nsample: int
             Number of Monte Carlo samples to add into particles, and to divide weights by
         label: str / None
@@ -828,7 +739,7 @@ class Model(Utility):
             Collider sqrt(S) in TeV
         nsample_had: int
             Number of Monte Carlo samples to consider for mother hadrons,
-            see nsample in convert_list_to_momenta
+            see nsample in read_list_4momenta_weights
         nsample: int
             Number of Monte Carlo samples to add into particles, and to divide weights by
         label: str / None
@@ -1329,7 +1240,7 @@ class Decay():
         #TODO replace below w/ above, more efficient but generation order differs
         q2,costh,phi,energy=[],[],[],[]
         for _ in range(nsample):
-            #FIXME should use self.rng.uniform instead of random.uniform
+            #FIXME should use self.rng.uniform instead of random.uniform --> agree
             q2.append(random.uniform(q2min,q2max))
             costh.append(random.uniform(-1,1))
             phi.append(random.uniform(-math.pi,math.pi))
@@ -1673,7 +1584,7 @@ class Foresee(Utility, Decay):
 
         # load mother particle spectrum
         filenames = [self.dirpath + "files/hadrons/"+energy+"TeV/"+gen+"/"+gen+"_"+energy+"TeV_"+pid0+".txt" for gen in generator]
-        momenta_mother, weights_mother = self.convert_list_to_momenta(filenames,mass=self.masses(pid0), preselectioncut=preselectioncut, nsample=nsample_had)
+        momenta_mother, weights_mother = self.read_list_4momenta_weights(filenames,mass=self.masses(pid0), preselectioncut=preselectioncut, nsample=nsample_had)
 
         # get sample of LLP momenta in the mother's rest frame
         if self.model.production[key]["type"] == "2body":
@@ -1728,7 +1639,7 @@ class Foresee(Utility, Decay):
 
         # load mother particle spectrum
         filenames = [self.dirpath + "files/hadrons/"+energy+"TeV/"+gen+"/"+gen+"_"+energy+"TeV_"+pid0+".txt" for gen in generator]
-        momenta_mother, weights_mother = self.convert_list_to_momenta(filenames,mass=self.masses(pid0))
+        momenta_mother, weights_mother = self.read_list_4momenta_weights(filenames,mass=self.masses(pid0))
 
         # z-axis angles and 3-momentum magnitudes from momenta
         momenta_lab = theta_p3_f_arr(momenta=momenta_mother)
@@ -1779,8 +1690,8 @@ class Foresee(Utility, Decay):
         filenames0=[self.model.modelpath+"model/direct/"+energy+"TeV/"+config+"_"+energy+"TeV_"+str(mass0)+".txt" for config in configuration]
         filenames1=[self.model.modelpath+"model/direct/"+energy+"TeV/"+config+"_"+energy+"TeV_"+str(mass1)+".txt" for config in configuration]
         try:
-            momenta_llp0, weights_llp0 = self.convert_list_to_momenta(filenames0,mass=mass0,nocuts=True)
-            momenta_llp1, weights_llp1 = self.convert_list_to_momenta(filenames1,mass=mass1,nocuts=True)
+            momenta_llp0, weights_llp0 = self.read_list_4momenta_weights(filenames0,mass=mass0,nocuts=True)
+            momenta_llp1, weights_llp1 = self.read_list_4momenta_weights(filenames1,mass=mass1,nocuts=True)
         except:
             print ("did not find file:", filenames0, "or", filenames1)
             return [], []
@@ -1938,7 +1849,7 @@ class Foresee(Utility, Decay):
         self.numbafunc_selection = jit(nopython=True)(lambdafunc_selection)
 
         #make evaluation of efficiency faster
-        lambdastr_efficiency = f'lambda energy: {efficiency}'
+        lambdastr_efficiency = f'lambda energy,x,y: {efficiency}'
         lambdafunc_efficiency = eval(lambdastr_efficiency)
         self.numbafunc_efficiency = jit(nopython=True)(lambdafunc_efficiency)
 
@@ -1974,7 +1885,6 @@ class Foresee(Utility, Decay):
             nsample = 1,
             preselectioncuts = "th<0.01",
             coup_ref = 1,
-            extend_to_low_pt_scales = {},
         ):
         """
         The numbers of expected events in the specified detector,
@@ -1997,8 +1907,6 @@ class Foresee(Utility, Decay):
             Expression defining cuts to be used e.g. "th<0.01 and p>100"
         coup_ref: float
             Reference coupling value
-        extend_to_low_pt_scales: dict
-            Scales for extending to low pt, with productions as keys
         Returns
 
         -------
@@ -2008,12 +1916,10 @@ class Foresee(Utility, Decay):
         # setup different couplings to scan over
         model = self.model
         if modes is None: modes = {key: model.production[key]["production"] for key in model.production.keys()}
-        for key in model.production.keys():
-            if key not in extend_to_low_pt_scales: extend_to_low_pt_scales[key] = None
         nprods = max([len(modes[key]) for key in modes.keys()])
         for key in modes.keys(): modes[key] += [modes[key][0]] * (nprods - len(modes[key]))
 
-        #setup ctau, branchinf fractions
+        #setup ctau, branching fractions
         ctaus = np.array([model.get_ctau(mass, coupling) for coupling in couplings])
         if self.channels is None: brs = np.array([1 for coupling in couplings])
         else: brs = np.array([sum([model.get_br(channel, mass, coupling) for channel in self.channels]) for coupling in couplings])
@@ -2030,9 +1936,8 @@ class Foresee(Utility, Decay):
 
             # try Load Flux file
             try:
-                momenta, weights =self.convert_list_to_momenta(filenames=filenames, mass=mass,
-                    filetype="npy", nsample=nsample, preselectioncut=preselectioncuts,
-                    extend_to_low_pt_scale=extend_to_low_pt_scales[key])
+                momenta, weights =self.read_list_4momenta_weights(filenames=filenames, mass=mass,
+                    filetype="npy", nsample=nsample, preselectioncut=preselectioncuts)
             except:
                 continue
                 
@@ -2043,12 +1948,12 @@ class Foresee(Utility, Decay):
             momenta = LorentzVectors_to_f_arr(momenta)
             #TODO below could likely be optimized with skheparrays, if momenta not turned into arrays just yet
             position = [ [self.distance/p[2]*p[0], self.distance/p[2]*p[1], self.distance] for p in momenta]
-            filtered = [(p, w) for p,x,w in zip(momenta, position, weights) if self.numbafunc_selection(x[0],x[1],x[2],p[0],p[1],p[2])]
+            filtered = [(p, x, w) for p,x,w in zip(momenta, position, weights) if self.numbafunc_selection(x[0],x[1],x[2],p[0],p[1],p[2])]
             if not filtered: continue
-            momenta, weights = zip(*filtered)
+            momenta, positions, weights = zip(*filtered)
 
             # weight of this event incl. lumi and efficiency
-            weights = [w * self.numbafunc_efficiency(p[3]) * self.luminosity * 1000 for (p,w) in zip(momenta, weights)]
+            weights = [w * self.numbafunc_efficiency(p[3],x[0],x[1]) * self.luminosity * 1000 for (p,x,w) in zip(momenta, positions, weights)]
 
             # loop over particles, and record probablity to decay in volume
             # TODO could this be optimized?
@@ -2076,7 +1981,6 @@ class Foresee(Utility, Decay):
             nsample = 1,
             preselectioncuts = "th<0.01 and p>100",
             coup_ref = 1,
-            extend_to_low_pt_scales = {},
         ):
         """
         Get the expected number of signal events in the specified detector
@@ -2099,8 +2003,6 @@ class Foresee(Utility, Decay):
             Expression defining cuts to be used e.g. "th<0.01 and p>100"
         coup_ref: float
             Reference coupling value
-        extend_to_low_pt_scales: dict
-            Scales for extending to low pt, with productions as keys
 
         Returns
         -------
@@ -2110,8 +2012,6 @@ class Foresee(Utility, Decay):
         # setup different couplings to scan over
         model = self.model
         if modes is None: modes = {key: model.production[key]["production"] for key in model.production.keys()}
-        for key in model.production.keys():
-            if key not in extend_to_low_pt_scales: extend_to_low_pt_scales[key] = None
         nprods = max([len(modes[key]) for key in modes.keys()])
         for key in modes.keys(): modes[key] += [modes[key][0]] * (nprods - len(modes[key]))
 
@@ -2130,10 +2030,9 @@ class Foresee(Utility, Decay):
 
             # try Load Flux file
             try:
-                momenta, weights=self.convert_list_to_momenta(
+                momenta, weights=self.read_list_4momenta_weights(
                     filenames=filenames, mass=mass,
-                    filetype="npy", nsample=nsample, preselectioncut=preselectioncuts,
-                    extend_to_low_pt_scale=extend_to_low_pt_scales[key])
+                    filetype="npy", nsample=nsample, preselectioncut=preselectioncuts)
             except:
                 continue
                 
@@ -2218,10 +2117,9 @@ class Foresee(Utility, Decay):
             
             # try Load Flux file
             try:
-                momenta, weights=self.convert_list_to_momenta(
+                momenta, weights=self.read_list_4momenta_weights(
                     filenames=filenames, mass=mass,
-                    filetype="npy", nsample=nsample, preselectioncut=preselectioncuts,
-                    extend_to_low_pt_scale=None)
+                    filetype="npy", nsample=nsample, preselectioncut=preselectioncuts)
             except:
                 continue
                 
@@ -2424,7 +2322,7 @@ class Foresee(Utility, Decay):
 
 
     def write_events(self, mass, coupling, energy, filename=None, numberevent=10, zfront=0, nsample=1,
-        notime=True, t0=0, modes=None, return_data=False, extend_to_low_pt_scales={},
+        notime=True, t0=0, modes=None, return_data=False,
         filetype="hepmc", preselectioncuts="th<0.01", weightnames=None):
         """
         A handle to the file writing functions
@@ -2450,8 +2348,6 @@ class Foresee(Utility, Decay):
         t0=0, modes=None
         return_data: bool
             Flag whether to return data and weight information
-        extend_to_low_pt_scales: dict
-            Scales for extending to low pt, with productions as keys
         filetype: str
             Specify "hepmc" or "csv"
         preselectioncuts: str
@@ -2472,7 +2368,8 @@ class Foresee(Utility, Decay):
         if weightnames is None: weightnames = modes[list(modes.keys())[0]]
 
         # get weighted sample of LLPs
-        _, _, _, weighted_raw_data, weights = self.get_events(mass=mass, energy=energy, couplings = [coupling], nsample=nsample, modes=modes, extend_to_low_pt_scales=extend_to_low_pt_scales, preselectioncuts=preselectioncuts)
+        _, _, _, weighted_raw_data, weights = self.get_events(mass=mass, energy=energy, couplings = [coupling],
+            nsample=nsample, modes=modes, preselectioncuts=preselectioncuts)
         baseweights = weights[0].T[0]
 
         # unweight sample
@@ -2629,7 +2526,7 @@ class Foresee(Utility, Decay):
         # Existing Constraints
         for bound in bounds2:
             filename, label, posx, posy, rotation = bound
-            data=self.readfile(self.model.modelpath+"model/lines/"+filename)
+            data=np.loadtxt(self.model.modelpath+"model/lines/"+filename)
             ax.fill(data.T[0], data.T[1], color="#efefef",zorder=zorder)
             ax.plot(data.T[0], data.T[1], color="darkgray"  ,zorder=zorder,lw=1)
             zorder+=1
@@ -2637,14 +2534,14 @@ class Foresee(Utility, Decay):
         # Future sensitivities
         for projection in projections:
             filename, color, label, posx, posy, rotation = projection
-            data=self.readfile(self.model.modelpath+"model/lines/"+filename)
+            data=np.loadtxt(self.model.modelpath+"model/lines/"+filename)
             ax.plot(data.T[0], data.T[1], color=color, ls="dashed", zorder=zorder, lw=1)
             zorder+=1
 
         # Existing Constraints
         for bound in bounds:
             filename, label, posx, posy, rotation = bound
-            data=self.readfile(self.model.modelpath+"model/lines/"+filename)
+            data=np.loadtxt(self.model.modelpath+"model/lines/"+filename)
             ax.fill(data.T[0], data.T[1], color="gainsboro",zorder=zorder)
             ax.plot(data.T[0], data.T[1], color="dimgray"  ,zorder=zorder,lw=1)
             zorder+=1
@@ -2739,7 +2636,7 @@ class Foresee(Utility, Decay):
             List of dictionaries specifying each production mode, e.g.
             {"channels": "111",
              "color": "red",
-             "label": r"$\pi^0 \to \gamma A'$",
+             "label": r"$\\pi^0 \to \\gamma A'$",
              "generators": ["EPOSLHC"]},
         condition: str
             Add event weight to total if this condition is satisfied
@@ -2856,7 +2753,7 @@ class Foresee(Utility, Decay):
         """
         dirname = self.dirpath + "files/hadrons/"+energy+"TeV/"+generator+"/"
         filenames = [dirname+generator+"_"+energy+"TeV_"+pid+".txt"]
-        p,w = self.convert_list_to_momenta(filenames,mass=self.masses(pid))
+        p,w = self.read_list_4momenta_weights(filenames,mass=self.masses(pid))
         plt,_,_,_ =self.convert_to_hist_list(p,w[:,0], do_plot=True, prange=prange)
         return plt
 

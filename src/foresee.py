@@ -6,14 +6,7 @@ import math
 import random
 import time
 import types
-
-#Path to the directory containing this file, for supporting multiple src files
-import sys
-from pathlib import Path
-src_path = str(Path(__file__).resolve().parent)
-sys.path.append(src_path)
-from src.vectors import *
-
+from .utils.vectors import *
 from scipy import interpolate
 from matplotlib import gridspec
 from numba import jit

@@ -38,7 +38,7 @@ def test_read_list_momenta_weights_1():
             for pid in ["211"]:
             
                 #Open file, fetch list of xs
-                filename = foresee.dirpath+"files/hadrons/"+energy+"TeV.txt"
+                filename = foresee.dirpath+"files/hadrons/"+energy+"TeV.txt.gz"
                 _, _,list_xs  = foresee.read_list_angle_momenta_weights(filename=filename, keys = [(pid,generator)])
                 
                 #Check approx agreement of sum of flattened list_xs w/ expected ref
@@ -79,7 +79,7 @@ def test_read_list_momenta_weights_2():
             for pid in ["111","-211","221","321","310","223"]:
                 
                 #Open file, fetch list of xs
-                filename = foresee.dirpath+"files/hadrons/"+energy+"TeV.txt"
+                filename = foresee.dirpath+"files/hadrons/"+energy+"TeV.txt.gz"
                 _, _,list_xs  = foresee.read_list_angle_momenta_weights(filename=filename, keys = [(pid,generator)])
                 
                 #Check approx agreement of sum of flattened list_xs w/ expected ref
@@ -117,7 +117,7 @@ def test_read_list_momenta_weights_3():
             for pid in ["411","-421", "4122"]:
                 
                 #Open file, fetch list of xs
-                filename = foresee.dirpath+"files/hadrons/"+energy+"TeV.txt"
+                filename = foresee.dirpath+"files/hadrons/"+energy+"TeV.txt.gz"
                 _, _,list_xs  = foresee.read_list_angle_momenta_weights(filename=filename, keys = [(pid,generator)])
                 
                 #Check approx agreement of sum of flattened list_xs w/ expected ref
@@ -146,7 +146,7 @@ def test_read_list_momenta_weights_4():
             for pid in ["-511", "521"]:
                 
                 #Open file, fetch list of xs
-                filename = foresee.dirpath+"files/hadrons/"+energy+"TeV.txt"
+                filename = foresee.dirpath+"files/hadrons/"+energy+"TeV.txt.gz"
                 _, _,list_xs  = foresee.read_list_angle_momenta_weights(filename=filename, keys = [(pid,generator)])
                 
                 #Check approx agreement of sum of flattened list_xs w/ expected ref
@@ -158,7 +158,7 @@ def test_read_list_4momenta_weights():
     """
     Check the correct formatting of the output momentum and weight lists/arrays
     """
-    fname= "../files/hadrons/14TeV.txt"
+    fname= "../files/hadrons/14TeV.txt.gz"
     key = ('421','NLO-P8')
     foresee.rng.seed(137)
     p,wgt = foresee.read_list_4momenta_weights(

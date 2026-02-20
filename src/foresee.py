@@ -1,8 +1,6 @@
-import numpy as np
 import matplotlib
 import os
 from matplotlib import pyplot as plt
-import math
 import random
 import time
 import types

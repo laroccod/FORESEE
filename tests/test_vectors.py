@@ -14,6 +14,22 @@ import pytest
 import numpy as np
 
 #@pytest.mark.skip  #Uncomment decorator to disable this test
+def test_dot4():
+    p4 = LorentzVector(0.,0.,1.,1)
+    assert p4.dot(p4)==0.
+    v = LorentzVector(1.,2.,3.,4)
+    w = LorentzVector(1.,1.,1.,4)
+    assert v.dot(w)==(16.-3.-2.-1.)
+    
+#@pytest.mark.skip  #Uncomment decorator to disable this test
+def test_dot3():
+    p3 = Vector3D(0.,0.,1.)
+    assert p3.dot(p3)==1.
+    v = Vector3D(1.,2.,3.)
+    w = Vector3D(1.,1.,1.)
+    assert v.dot(w)==(3.+2.+1.)
+
+#@pytest.mark.skip  #Uncomment decorator to disable this test
 def test_boost():
     
     #Test simple single vector boost

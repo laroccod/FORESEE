@@ -22,6 +22,19 @@ if not _OLD_SKHEP:
         def __init__(self, x, y, z):
             super().__init__(x=x,y=y,z=z)
 
+        def rotate(self,angle,axis):
+            """
+            For rotations, ensure syntax compatible with previous implementation
+            Parameters
+            ----------
+            angle: float
+                Rotate this vector by a given angle
+            axis: Vector3D
+                The axis about which to rotate to
+            """
+            superobj = super().rotate_axis(axis=axis,angle=angle)
+            return Vector3D(x=superobj.x,y=superobj.y,z=superobj.z)
+
         def angle(self, vec):
             """
             Angle between this 3-vector and another. Undefined if a vector is (0,0,0), default to 0
@@ -70,7 +83,7 @@ if not _OLD_SKHEP:
         
         def __init__(self, px, py, pz, e):
             super().__init__(x=px,y=py,z=pz,t=e)
-                
+
         @property
         def vector(self):
             """
@@ -79,8 +92,25 @@ if not _OLD_SKHEP:
             return Vector3D(x=self.x, y=self.y, z=self.z)
 
         def rotate(self,angle,axis):
+            """
+            For rotations, ensure syntax compatible with previous implementation
+            Parameters
+            ----------
+            angle: float
+                Rotate this vector by a given angle
+            axis: Vector3D
+                The axis about which to rotate to
+            """
             superobj = super().rotate_axis(axis=axis,angle=angle)
             return LorentzVector(px=superobj.x,py=superobj.y,pz=superobj.z,e=superobj.t)
+
+        def angle(self, vec):
+            """
+            Angle between the spatial part of this and another 4- or 3-vector
+            """
+            v = self.vector
+            w = vec if type(vec)==Vector3D else vec.vector
+            return v.angle(w)
         
         #Override left and right multiplication s.t. we can do e.g. -1.*LorentzVector
         #Note however that this reproduces the behavior -1.*(x,y,z,t)=(-x,-y,-z,-t)

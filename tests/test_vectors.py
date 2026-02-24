@@ -41,18 +41,51 @@ def test_cross():
     xy2 = Vector3D(2.,3.,0.)
     assert xy1.cross(xy2)==Vector3D(0.,0.,3.-8.)
 
-#TODO Vector3D
-#TODO test_angle
-#TODO test_unit
-#TODO test_to_list
-#TODO test_mul, test_rmul
+#@pytest.mark.skip  #Uncomment decorator to disable this test
+def test_angle():
+    x = Vector3D(1.,0.,0.)
+    y = Vector3D(0.,1.,0.)
+    z = Vector3D(0.,0.,1.)
+    null = Vector3D(0.,0.,0.)
+    v=Vector3D(1.,1.,0.)
+    assert v.angle(null)==0.
+    assert np.isclose(v.angle(-v), np.pi,      rtol=0.0001)
+    assert np.isclose(v.angle(x),  np.pi*0.25, rtol=0.0001)
+    assert np.isclose(v.angle(y),  np.pi*0.25, rtol=0.0001)
+    assert np.isclose(v.angle(z),  np.pi*0.5,  rtol=0.0001)
+    w=Vector3D(-1.,1.,0.)
+    assert np.isclose(w.angle(x),  np.pi*0.75, rtol=0.0001)  #Ensure smallest angle given, w/ + sign
 
-#TODO LorentzVector
-#TODO test_vector
-#TODO test_rotate
-#TODO test_to_list
-#TODO test_mul, test_rmul
-
+#@pytest.mark.skip  #Uncomment decorator to disable this test
+def test_mul():
+    v = Vector3D(1.,2.,3.)
+    assert -2.*v==Vector3D(-2.,-4.,-6)
+    assert -2.*v==v*-2.
+    p4 = LorentzVector(0.,0.,1.,1)
+    p4m = -1.*p4
+    p4m_r = p4*-1.
+    assert p4m==LorentzVector(0.,0.,-1.,-1.)  #N.B. also t-component multiplied!
+    assert p4m==p4m_r
+    
+#@pytest.mark.skip  #Uncomment decorator to disable this test
+def test_rotate():
+    x = Vector3D(1.,0.,0.)
+    y = Vector3D(0.,1.,0.)
+    z = Vector3D(0.,0.,1.)
+    xp = x.rotate(0.5*np.pi,z)
+    assert x.angle(Vector3D(1.,0.,0.))==0.  #Ensure original vector unchanged
+    assert np.isclose(xp.angle(y),0.,0.0001)
+    p4 = LorentzVector(3.,4.,0.,5)
+    p4p = LorentzVector(0.,0.,p4.z,p4.e)
+    p4p.rotate(p4.angle(z),y).rotate(p4.angle(y),z)
+    assert np.isclose(p4p.angle(p4),0.,rtol=0.0001)
+    
+#@pytest.mark.skip  #Uncomment decorator to disable this test
+def test_unit_vector():
+    v = LorentzVector(0.,3.,4.,8.)
+    assert v.vector==Vector3D(0.,3.,4.)  #Magnitude sqrt(3^2+4^2)=5
+    assert v.vector.unit()==Vector3D(0.,0.6,0.8)
+    
 #@pytest.mark.skip  #Uncomment decorator to disable this test
 def test_boost():
     

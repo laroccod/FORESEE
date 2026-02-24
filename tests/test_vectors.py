@@ -30,6 +30,30 @@ def test_dot3():
     assert v.dot(w)==(3.+2.+1.)
 
 #@pytest.mark.skip  #Uncomment decorator to disable this test
+def test_cross():
+    x = Vector3D(1.,0.,0.)
+    y = Vector3D(0.,1.,0.)
+    z = Vector3D(0.,0.,1.)
+    assert x.cross(y)== z
+    assert x.cross(z)==-y
+    assert y.cross(z)== x
+    xy1 = Vector3D(1.,4.,0.)
+    xy2 = Vector3D(2.,3.,0.)
+    assert xy1.cross(xy2)==Vector3D(0.,0.,3.-8.)
+
+#TODO Vector3D
+#TODO test_angle
+#TODO test_unit
+#TODO test_to_list
+#TODO test_mul, test_rmul
+
+#TODO LorentzVector
+#TODO test_vector
+#TODO test_rotate
+#TODO test_to_list
+#TODO test_mul, test_rmul
+
+#@pytest.mark.skip  #Uncomment decorator to disable this test
 def test_boost():
     
     #Test simple single vector boost

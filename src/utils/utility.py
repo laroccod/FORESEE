@@ -1,5 +1,6 @@
 from particle import Particle
 import matplotlib
+from matplotlib import pyplot as plt
 import numpy as np
 import math
 from .vectors import *
@@ -307,8 +308,8 @@ class Utility():
 
         # plot ?
         if do_plot:
-            plt=self.make_spectrumplot(list_t, list_p, list_w, prange, vmin=vmin, vmax=vmax)
-            return plt, list_t,list_p,list_w
+            plotobj=self.make_spectrumplot(list_t, list_p, list_w, prange, vmin=vmin, vmax=vmax)
+            return plotobj, list_t,list_p,list_w
         else:
             return list_t,list_p,list_w
 

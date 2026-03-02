@@ -71,7 +71,14 @@ if not _OLD_SKHEP:
             return Vector3D(x=ret.x,y=ret.y,z=ret.z)
         def __rmul__(self,val):
             return self.__mul__(val)
-
+        
+        #Override +/- operators to get correct return value type
+        def __add__(self,vec):
+            ret = super().__add__(vec)
+            return Vector3D(x=ret.x,y=ret.y,z=ret.z)
+        def __sub__(self,vec):
+            ret = super().__sub__(vec)
+            return Vector3D(x=ret.x,y=ret.y,z=ret.z)
 
         def tolist(self):
             """
@@ -121,6 +128,14 @@ if not _OLD_SKHEP:
         def __rmul__(self,val):
             return self.__mul__(val)
         
+        #Override +/- operators to get correct return value type
+        def __add__(self,vec):
+            ret = super().__add__(vec)
+            return LorentzVector(px=ret.x,py=ret.y,pz=ret.z,e=ret.t)
+        def __sub__(self,vec):
+            ret = super().__sub__(vec)
+            return LorentzVector(px=ret.x,py=ret.y,pz=ret.z,e=ret.t)
+
         @property
         def boostvector(self):
             """

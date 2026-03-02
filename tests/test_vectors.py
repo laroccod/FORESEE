@@ -66,7 +66,33 @@ def test_mul():
     p4m_r = p4*-1.
     assert p4m==LorentzVector(0.,0.,-1.,-1.)  #N.B. also t-component multiplied!
     assert p4m==p4m_r
+
+#@pytest.mark.skip  #Uncomment decorator to disable this test
+def test_add_sub():
     
+    v = Vector3D(1.,2.,3.)
+    vaddv = v+v
+    vsubv = v-v
+    assert type(vaddv)==type(v)
+    assert type(vsubv)==type(v)
+    assert vaddv==Vector3D(2.,4.,6.)
+    assert vsubv==Vector3D(0.,0.,0.)
+
+    p  = LorentzVector(px= 1.,py=0.,pz=0.,e=1.)
+    pm = LorentzVector(px=-1.,py=0.,pz=0.,e=1.)
+    paddp  = p+p
+    psubp  = p-p
+    paddpm = p+pm
+    psubpm = p-pm
+    assert type(paddp )==type(p)
+    assert type(psubp )==type(p)
+    assert type(paddpm)==type(p)
+    assert type(psubpm)==type(p)
+    assert paddp ==LorentzVector(px=2., py=0., pz=0., e=2.)  #Lightlike
+    assert psubp ==LorentzVector(px=0., py=0., pz=0., e=0.)  #Nothing
+    assert paddpm==LorentzVector(px=0., py=0., pz=0., e=2.)  #Timelike at rest
+    assert psubpm==LorentzVector(px=2., py=0., pz=0., e=0.)  #Spacelike
+
 #@pytest.mark.skip  #Uncomment decorator to disable this test
 def test_rotate():
     x = Vector3D(1.,0.,0.)

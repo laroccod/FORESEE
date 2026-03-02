@@ -1,4 +1,5 @@
 from particle import Particle
+import matplotlib
 import numpy as np
 import math
 from .vectors import *

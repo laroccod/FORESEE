@@ -38,7 +38,7 @@ def test_rng_init_requirement():
     #Check that the Utility random number generator cannot be accessed unless given in init
     decay_no_rng = Decay()
     rng_inaccessible = False
-    try: decay.rng.seed(137)
+    try: decay_no_rng.rng.seed(137)
     except: rng_inaccessible = True
     assert rng_inaccessible
     

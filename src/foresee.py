@@ -436,7 +436,7 @@ class Utility():
         # save file ?
         if filename is not None:
             print ("save data to file:", filename)
-            np.save(filename,[list_t,list_p,list_w])
+            np.save(fr"{filename}",[list_t,list_p,list_w])
 
         # plot ?
         if do_plot:

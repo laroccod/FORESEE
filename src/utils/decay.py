@@ -2,6 +2,9 @@ from .vectors import *
 
 class Decay():
 
+    def __init__(self, rng=None):
+        self.rng = rng
+
     ###############################
     #  Kinematic Functions
     ###############################
@@ -122,18 +125,28 @@ class Decay():
         """
 
         p1, p2, p3 = None, None, None
+        m1p2 = (m1+m2)**2
+        m0m3 = (m0-m3)**2
+        m2p3 = (m2+m3)**2
+        m0m1 = (m0-m1)**2
         while p1 == None:
             #randomly draw mij^2
-            m122 = self.rng.uniform((m1+m2)**2, (m0-m3)**2)
-            m232 = self.rng.uniform((m2+m3)**2, (m0-m1)**2)
+            m122 = self.rng.uniform(m1p2, m0m3)
+            m232 = self.rng.uniform(m2p3, m0m1)
             m132 = m0**2+m1**2+m2**2+m3**2-m122-m232
 
             #calculate energy and momenta
             e1 = (m0**2+m1**2-m232)/(2*m0)
             e2 = (m0**2+m2**2-m132)/(2*m0)
             e3 = (m0**2+m3**2-m122)/(2*m0)
-
-            if (e1<m1) or (e2<m2) or (e3<m3): continue
+            
+            #Make sure unphysical energies not sampled. Suffices to check e2 since
+            #e1>m1 <=> m0**2+m1**2-m232 > 2*m0*m1 <=> m232 < (m0-m1)**2,
+            #e3>m3 <=> m0**2+m3**2-m122 > 2*m0*m3 <=> m122 < (m0-m3)**2
+            #hold by definition
+            if e2<m2: continue
+            
+            #3-momentum magnitudes
             mom1 = np.sqrt(e1**2-m1**2)
             mom2 = np.sqrt(e2**2-m2**2)
             mom3 = np.sqrt(e3**2-m3**2)

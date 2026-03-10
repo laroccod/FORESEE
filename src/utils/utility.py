@@ -7,6 +7,9 @@ from .vectors import *
 
 class Utility():
 
+    def __init__(self, rng=None):
+        self.rng = rng
+
     ###############################
     #  Hadron Masses, lifetimes etc
     ###############################

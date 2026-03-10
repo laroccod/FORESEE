@@ -22,6 +22,11 @@ class Foresee(Utility, Decay):
 
     def __init__(self, path="../../"):
 
+        #Consistently initiate random number generators
+        self.rng = random.Random()
+        Utility.__init__(self,self.rng)
+        Decay.__init__(self,self.rng)
+
         # initiate properties
         self.model = None
         self.shortlived = {"321": 20, "-321": 20, "321": 20,  }
@@ -31,8 +36,6 @@ class Foresee(Utility, Decay):
         self.distance = 480
         self.channels = None
         self.dirpath = path
-        self.rng = random.Random()
-
         #initiate jit functions by running with dummy input
         _ = self.boostlist(np.array([[0,0,0,1]]),np.array([[0,0,0]]))
 

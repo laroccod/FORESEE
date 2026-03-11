@@ -39,10 +39,10 @@ def test_DarkPhoton_pion():
         os.unlink('model/br')
         os.unlink('model/ctau.txt')
     except: pass
-    os.symlink(src = src_path + '../Models/' + modelname + '/model/br',\
+    os.symlink(src = os.path.normpath(src_path + '../Models/' + modelname + '/model/br'),\
                dst = 'model/br',\
                target_is_directory=True)
-    os.symlink(src = src_path + '../Models/' + modelname + '/model/ctau_DarkCast.txt',\
+    os.symlink(src = os.path.normpath(src_path + '../Models/' + modelname + '/model/ctau_DarkCast.txt'),\
                dst = 'model/ctau.txt',\
                target_is_directory=False)
 
@@ -84,10 +84,10 @@ def test_DarkPhoton_pion():
     
     #Compare result to expected numbers of events
     ref = {
-        "EPOSLHC": 118.51,
-        "SIBYLL": 107.446,
-        "QGSJET": 109.821,
-        "PYTHIA": 114.938,
+        "EPOSLHC": 126.785,
+        "SIBYLL": 115.365,
+        "QGSJET": 116.697,
+        "PYTHIA": 123.4,
     }
 
     for isetup, setup in enumerate(setupnames):
@@ -118,10 +118,10 @@ def test_DarkPhoton_eta():
         os.unlink('model/br')
         os.unlink('model/ctau.txt')
     except: pass
-    os.symlink(src = src_path + '../Models/' + modelname + '/model/br_DarkCast',\
+    os.symlink(src = os.path.normpath(src_path + '../Models/' + modelname + '/model/br_DarkCast'),\
                dst = 'model/br',\
                target_is_directory=True)
-    os.symlink(src = src_path + '../Models/' + modelname + '/model/ctau_DarkCast.txt',\
+    os.symlink(src = os.path.normpath(src_path + '../Models/' + modelname + '/model/ctau_DarkCast.txt'),\
                dst = 'model/ctau.txt',\
                target_is_directory=False)
 
@@ -215,13 +215,13 @@ def test_DarkPhoton_brem():
         os.unlink('model/ctau.txt')
         os.unlink('model/direct')
     except: pass
-    os.symlink(src = src_path + '../Models/' + modelname + '/model/br',\
+    os.symlink(src = os.path.normpath(src_path + '../Models/' + modelname + '/model/br'),\
                dst = 'model/br',\
                target_is_directory=True)
-    os.symlink(src = src_path + '../Models/' + modelname + '/model/ctau_DarkCast.txt',\
+    os.symlink(src = os.path.normpath(src_path + '../Models/' + modelname + '/model/ctau_DarkCast.txt'),\
                dst = 'model/ctau.txt',\
                target_is_directory=False)
-    os.symlink(src = src_path + '../Models/' + modelname + '/model/direct',\
+    os.symlink(src = os.path.normpath(src_path + '../Models/' + modelname + '/model/direct'),\
                dst = 'model/direct',\
                target_is_directory=True)
 
@@ -296,10 +296,10 @@ def test_DarkPhoton_mix():
         os.unlink('model/br')
         os.unlink('model/ctau.txt')
     except: pass
-    os.symlink(src = src_path + '../Models/' + modelname + '/model/br',\
+    os.symlink(src = os.path.normpath(src_path + '../Models/' + modelname + '/model/br'),\
                dst = 'model/br',\
                target_is_directory=True)
-    os.symlink(src = src_path + '../Models/' + modelname + '/model/ctau_DarkCast.txt',\
+    os.symlink(src = os.path.normpath(src_path + '../Models/' + modelname + '/model/ctau_DarkCast.txt'),\
                dst = 'model/ctau.txt',\
                target_is_directory=False)
 
@@ -342,7 +342,7 @@ def test_DarkPhoton_mix():
     #Compare result to expected numbers of events
     ref = {
         "EPOSLHC": 0.212,
-        "SIBYLL": 0.135,
+        "SIBYLL": 0.136,
         "QGSJET": 0,
         "PYTHIA": 0.159,
     }

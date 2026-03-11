@@ -11,6 +11,7 @@ from scipy import interpolate
 from matplotlib import gridspec
 from numba import jit
 from particle import Particle
+import re, gzip
 
 ##############################################
 ##############################################
@@ -137,7 +138,7 @@ class Utility():
                 words = [float(elt.strip()) for elt in line.split( )]
                 array.append(words)
         return np.array(array)
-
+        
     ###############################
     #  Reading/Plotting Particle Tables
     ###############################
@@ -164,90 +165,126 @@ class Utility():
         zval = [ [ data[ix*ny+iy,idz] for iy in range(ny) ] for ix in range(nx)]
         return np.array(xval),np.array(yval),np.array(zval)
 
-    def extend_to_low_pt(self, list_t, list_p, list_w, ptmatch=0.5, navg=2):
+    def write_list_angle_momenta_weights(self, list_th, list_p, list_w, keys, filename="output.txt.gz"):
         """
-        Function to extend spectrum to low pT
-
+        Write a flattened grid of (logth, logp) points and associated weights to a
+        gzipped text file.
+    
         Parameters
         ----------
-        list_t: [float]
-            List of angles w.r.t z-axis
-        list_p: [float]
-            List of momenta
-        list_w: [float]
-            List of weights
-        ptmatch: float
-            Match pt at this scale
-        navg: int
-            Number of logt to average over
-
-        Returns
-        -------
-            List of resulting weights
+        list_th : array-like of float
+            The log-theta grid values.
+        list_p : array-like of float
+            The log-momentum grid values.
+        list_w : list of list of float
+            Weights for every key at every grid point.
+        keys : list of str
+            Column labels (e.g. '111(EPOSLHC)' or 'Brem_FWW(p.pt<1)').
+        filename : str
+            Output path.  If it ends with '.gz' the file is gzip-compressed.
         """
-        # round lists and ptmatch(so that we can easily search them)
-        list_t = [round(t,3) for t in list_t]
-        list_p = [round(p,3) for p in list_p]
-        l10ptmatch = round(round(np.log10(ptmatch)/0.05)*0.05,3)
+        n_points = len(list_th)
+    
+       
+        # Build the header line
+        header_parts = ["logth", "logp"] + [f'{k}' for k in keys]
+        header = " ".join(header_parts)
+    
+        open_func = gzip.open if filename.endswith(".gz") else open
+    
+        with open_func(filename, "wb") as f:
+            f.write((header + "\r\n").encode())
+    
+            for i in range(n_points):
+                row_parts = [str(list_th[i]), str(list_p[i])]
+                for k in range(len(keys)):
+                    row_parts.append(str(list_w[k][i]))
+                f.write((" ".join(row_parts) + "\r\n").encode())
+        print(f"spectra saved:\t{filename}")
+    
 
-        # for each energy, get 1/theta^2 * dsigma/dlog10theta, which should be constant
-        logps = np.linspace(1+0.025,5-0.025,80)
-        values = {}
-        for logp in logps:
-            rlogp = round(logp,3)
-            rlogts = [round(l10ptmatch - rlogp + i*0.05,3) for i in range(-navg,navg+1)]
-            vals = [list_w[(list_p==rlogp)*(list_t==rlogt)][0]/(10**rlogt)**2 for rlogt in rlogts]
-            values[rlogp] = np.mean(vals)
-
-        # using that, let's extrapolate to lower pT
-        list_wx = []
-        for logt, logp, w in zip(list_t, list_p, list_w):
-            rlogp, rlogt = round(logp,3), round(logt,3)
-            if  logt>l10ptmatch-logp-2.5*0.05 or logp<1:list_wx.append(w)
-            else:list_wx.append(values[rlogp]*(10**rlogt)**2)
-
-        #return results
-        return list_wx
-
-    def read_list_momenta_weights(self, filenames, filetype="txt", extend_to_low_pt_scale=None):
+    
+    def read_list_angle_momenta_weights(self,filename, keys):
         """
-        Function to read file and return momenta, weights
-
+        Read a flattened grid of (logth, logp) points and associated weights from a
+        (optionally gzipped) text file written by write_list_angle_momenta_weights.
+    
         Parameters
         ----------
-        filenames: [str]
-            List of strings containing the input filepaths w/o/ datatype suffix.
-            Files typically stored under files/hadrons/
-        filetype: str
-            The suffix of the input filename(s) datatype w/o/ ".", e.g. "txt"
-        extend_to_low_pt_scale: float / None
-            Scale ptmatch for computing weights using extend_to_low_pt
+        filename : str
+            Path to the file to read.  If it ends with '.gz' it is treated as
+            gzip-compressed.
+        keys : [str]
+            Column labels to extract (e.g. '111(EPOSLHC)' or 'Brem_FWW(p.pt<1)').
+            Must be a subset of the columns present in the file.
+    
         Returns
         -------
-            List of log10 of angle w.r.t z-axis,
-            list of log10 of momentum,
-            numpy array of xs values
+        list_th : [float]
+            The log-theta grid values.
+        list_p : [float]
+            The log-momentum grid values.
+        list_w : [[float]]
+            Weights for every requested key at every grid point.
+            list_w[i] corresponds to keys[i].
+    
+        Raises
+        ------
+        KeyError
+            If any of the requested keys are not found in the file header.
         """
+        open_func = gzip.open if filename.endswith(".gz") else open
+    
+        with open_func(filename, "rb") as f:
+            # --- parse header ---
+            raw_header = f.readline().decode().strip()
+            # Strip quotes that were added around key names during writing
+            header_cols = [col.strip('"') for col in raw_header.split()]
+    
+            idx_th = header_cols.index("logth")
+            idx_p  = header_cols.index("logp")
+    
+            missing = [k for k in keys if k not in header_cols]
+            if missing:
+                raise KeyError(f"Requested key(s) not found in file header: {missing}")
+    
+            idx_keys = [header_cols.index(k) for k in keys]
+    
+            # --- read data rows ---
+            list_th, list_p, list_w = [], [], [[] for _ in keys]
+    
+            for line in f:
+                line = line.decode().strip()
+                if not line:
+                    continue
+                parts = line.split()
+                list_th.append(float(parts[idx_th]))
+                list_p.append(float(parts[idx_p]))
+                
+                for out_idx, col_idx in enumerate(idx_keys):
+                    w = parts[col_idx]
+                    if w != 'NULL': list_w[out_idx].append(float(w))
+                    else: list_w[out_idx].append(np.nan)
+                        
+        mask = ~np.isnan(np.array(list_w)).any(axis=0)
+        list_th = [list_th[i] for i in range(len(list_th)) if mask[i]]
+        list_p = [list_p[i] for i in range(len(list_p)) if mask[i]]
+        list_w = np.array(list_w)[:, mask]
+    
+        return list_th, list_p, np.array(list_w).T
+              
 
-        if type(filenames) == str: filenames=[filenames]
-        list_xs = []
-        for filename in filenames:
-            if filetype=="txt": list_logth, list_logp, weights = self.readfile(filename).T
-            elif filetype=="npy": list_logth, list_logp, weights = np.load(filename)
-            else: print ("ERROR: cannot read file type")
-            if extend_to_low_pt_scale is not None: weights = self.extend_to_low_pt(list_logth, list_logp, weights, ptmatch=extend_to_low_pt_scale)
-            list_xs.append(weights)
-        return list_logth, list_logp, np.array(list_xs).T
-
-    def convert_list_to_momenta(self,filenames,mass,filetype="txt",nsample=1,preselectioncut=None, nocuts=False, extend_to_low_pt_scale=None):
+    def convert_list_to_momenta(self, filename, keys, mass,nsample=1,preselectioncut=None, nocuts=False):
         """
         Function that converts input files under files/hadrons/ into meson spectra
 
         Parameters
         ----------
-        filenames: [str]
-            List of strings containing the input filepaths w/o/ datatype suffix.
+        filename: [str]
+            Strings containing the input filepath.
             Files typically stored under files/hadrons/
+        keys: [str]
+            Strings containing the name of columns to be extracted.
         mass: float
             The mass of the considered particle
         filetype: str
@@ -258,15 +295,13 @@ class Utility():
             Expression defining cuts to be used e.g. "th<0.01 and p>100"
         nocuts: bool
             Flag whether to skip applying cuts
-        extend_to_low_pt_scale: float, None
-            Scale ptmatch for computing weights using extend_to_low_pt
 
         Returns
         -------
             Particles as LorentzVectors and an array of weights
         """
         #read file
-        list_logth, list_logp, list_xs = self.read_list_momenta_weights(filenames=filenames, filetype=filetype, extend_to_low_pt_scale=None)
+        list_logth, list_logp, list_xs = self.read_list_angle_momenta_weights(filename, keys)
 
         particles, weights = [], []
         for logth,logp,xs in zip(list_logth,list_logp, list_xs):
@@ -391,7 +426,7 @@ class Utility():
         ax.set_ylim(pmin, pmax)
         return plt
 
-    def convert_to_hist_list(self,momenta,weights, do_plot=False, filename=None, prange=[[-5, 0, 100],[ 0, 4, 80]], vmin=None, vmax=None):
+    def convert_to_hist_list(self,momenta,weights, do_plot=False, prange=[[-5, 0, 100],[ 0, 4, 80]], vmin=None, vmax=None):
         """
         Convert list of momenta to 2D histogram, and plot
 
@@ -432,11 +467,6 @@ class Utility():
 
         # get_hist_list in
         list_t, list_p, list_w = self.get_hist_list(tx, px, weights, prange=prange )
-
-        # save file ?
-        if filename is not None:
-            print ("save data to file:", filename)
-            np.save(fr"{filename}",[list_t,list_p,list_w])
 
         # plot ?
         if do_plot:
@@ -1579,8 +1609,10 @@ class Foresee(Utility, Decay):
         elif (self.model.production[key]["type"]=="3body") and (self.masses(pid0)<=self.masses(pid1,mass)+self.masses(pid2,mass)+mass): return [], []
 
         # load mother particle spectrum
-        filenames = [self.dirpath + "files/hadrons/"+energy+"TeV/"+gen+"/"+gen+"_"+energy+"TeV_"+pid0+".txt" for gen in generator]
-        momenta_mother, weights_mother = self.convert_list_to_momenta(filenames,mass=self.masses(pid0), preselectioncut=preselectioncut, nsample=nsample_had)
+
+        filename = self.dirpath + "files/hadrons/"+energy+"TeV.txt.gz"
+        keys = [f"{pid0}({gen})" for gen in generator]
+        momenta_mother, weights_mother = self.convert_list_to_momenta(filename, keys, mass=self.masses(pid0), preselectioncut=preselectioncut, nsample=nsample_had)
 
         # get sample of LLP momenta in the mother's rest frame
         if self.model.production[key]["type"] == "2body":
@@ -1634,8 +1666,9 @@ class Foresee(Utility, Decay):
             if mass<massrange[0] or mass>massrange[1]: return [], []
 
         # load mother particle spectrum
-        filenames = [self.dirpath + "files/hadrons/"+energy+"TeV/"+gen+"/"+gen+"_"+energy+"TeV_"+pid0+".txt" for gen in generator]
-        momenta_mother, weights_mother = self.convert_list_to_momenta(filenames,mass=self.masses(pid0))
+        filename = self.dirpath + "files/hadrons/"+energy+"TeV.txt.gz"
+        keys = [f"{pid0}({gen})" for gen in generator]
+        momenta_mother, weights_mother = self.convert_list_to_momenta(filename, keys, mass=self.masses(pid0))
 
         # momenta
         momenta_lab = np.array([ [np.arctan(p.pt/p.pz), p.p] for p in momenta_mother])
@@ -1683,13 +1716,14 @@ class Foresee(Utility, Decay):
             if xmass> mass and xmass<mass1: mass1=xmass
 
         #load benchmark data
-        filenames0=[self.model.modelpath+"model/direct/"+energy+"TeV/"+config+"_"+energy+"TeV_"+str(mass0)+".txt" for config in configuration]
-        filenames1=[self.model.modelpath+"model/direct/"+energy+"TeV/"+config+"_"+energy+"TeV_"+str(mass1)+".txt" for config in configuration]
+        filename0 = self.model.modelpath+"model/direct/"+energy+"TeV/"+energy+"TeV_"+str(mass0)+".txt.gz"
+        filename1 = self.model.modelpath+"model/direct/"+energy+"TeV/"+energy+"TeV_"+str(mass1)+".txt.gz"
+        
         try:
-            momenta_llp0, weights_llp0 = self.convert_list_to_momenta(filenames0,mass=mass0,nocuts=True)
-            momenta_llp1, weights_llp1 = self.convert_list_to_momenta(filenames1,mass=mass1,nocuts=True)
+            momenta_llp0, weights_llp0 = self.convert_list_to_momenta(filename0, configuration, mass=mass0, nocuts=True)
+            momenta_llp1, weights_llp1 = self.convert_list_to_momenta(filename1, configuration, mass=mass1, nocuts=True)
         except:
-            print ("did not find file:", filenames0, "or", filenames1)
+            print ("did not find file:", filename0, "or", filename1)
             return [], []
 
         #momenta
@@ -1736,6 +1770,9 @@ class Foresee(Utility, Decay):
         dirname = self.model.modelpath+"model/LLP_spectra/"
         if not os.path.exists(dirname): os.mkdir(dirname)
 
+        list_w = []
+        keys_llp = [] 
+        energy = 0
         # loop over channels
         for key in self.model.production.keys():
 
@@ -1752,14 +1789,24 @@ class Foresee(Utility, Decay):
             if save_file==True and len(momenta)>0:
                 energy = self.model.production[key]["energy"]
                 for iproduction, production in enumerate(self.model.production[key]["production"]):
-                    filename = dirname+energy+"TeV_"+key+"_"+production+"_m_"+str(mass)+".npy"
-                    self.convert_to_hist_list(momenta, weights[:,iproduction], do_plot=False, filename=filename)
+                    
+                    key_llp = f"{key}({production})"
+                    data = self.convert_to_hist_list(momenta, weights[:,iproduction], do_plot=False)
+                    list_w.append(data[2])
+                    keys_llp.append(key_llp)
+                    
 
             #store mome
             if do_plot and len(momenta)>0:
                 momenta_all = np.concatenate((momenta_all, momenta), axis=0)
                 weights_all = np.concatenate((weights_all, weights[:,0]), axis=0)
-
+        
+        if save_file==True and energy != 0:
+            logth, logp = data[0], data[1]
+            filename = dirname+energy+"TeV_"+"m_"+str(mass)+".txt.gz"
+            self.write_list_angle_momenta_weights(logth, logp, list_w, keys_llp, filename)
+            
+            
         #return
         if do_plot:
             return self.convert_to_hist_list(momenta_all, weights_all, do_plot=do_plot)[0]
@@ -1881,7 +1928,6 @@ class Foresee(Utility, Decay):
             nsample = 1,
             preselectioncuts = "th<0.01",
             coup_ref = 1,
-            extend_to_low_pt_scales = {},
         ):
         """
         The numbers of expected events in the specified detector,
@@ -1904,8 +1950,6 @@ class Foresee(Utility, Decay):
             Expression defining cuts to be used e.g. "th<0.01 and p>100"
         coup_ref: float
             Reference coupling value
-        extend_to_low_pt_scales: dict
-            Scales for extending to low pt, with productions as keys
         Returns
 
         -------
@@ -1915,8 +1959,6 @@ class Foresee(Utility, Decay):
         # setup different couplings to scan over
         model = self.model
         if modes is None: modes = {key: model.production[key]["production"] for key in model.production.keys()}
-        for key in model.production.keys():
-            if key not in extend_to_low_pt_scales: extend_to_low_pt_scales[key] = None
         nprods = max([len(modes[key]) for key in modes.keys()])
         for key in modes.keys(): modes[key] += [modes[key][0]] * (nprods - len(modes[key]))
 
@@ -1933,13 +1975,13 @@ class Foresee(Utility, Decay):
 
             productions = model.production[key]["production"]
             dirname = self.model.modelpath+"model/LLP_spectra/"
-            filenames = [dirname+energy+"TeV_"+key+"_"+production+"_m_"+str(mass)+".npy" for production in modes[key]]
-
+            filename = dirname+energy+"TeV_"+"m_"+str(mass)+".txt.gz"
+            keys_llp  = [f"{key}({production})" for production in modes[key]]
+            
             # try Load Flux file
             try:
-                momenta, weights =self.convert_list_to_momenta(filenames=filenames, mass=mass,
-                    filetype="npy", nsample=nsample, preselectioncut=preselectioncuts,
-                    extend_to_low_pt_scale=extend_to_low_pt_scales[key])
+                momenta, weights =self.convert_list_to_momenta(filename=filename, keys= keys_llp, mass=mass, nsample=nsample, preselectioncut=preselectioncuts)
+                
             except:
                 continue
                 
@@ -1979,7 +2021,6 @@ class Foresee(Utility, Decay):
             nsample = 1,
             preselectioncuts = "th<0.01 and p>100",
             coup_ref = 1,
-            extend_to_low_pt_scales = {},
         ):
         """
         Get the expected number of signal events in the specified detector
@@ -2002,8 +2043,6 @@ class Foresee(Utility, Decay):
             Expression defining cuts to be used e.g. "th<0.01 and p>100"
         coup_ref: float
             Reference coupling value
-        extend_to_low_pt_scales: dict
-            Scales for extending to low pt, with productions as keys
 
         Returns
         -------
@@ -2013,8 +2052,6 @@ class Foresee(Utility, Decay):
         # setup different couplings to scan over
         model = self.model
         if modes is None: modes = {key: model.production[key]["production"] for key in model.production.keys()}
-        for key in model.production.keys():
-            if key not in extend_to_low_pt_scales: extend_to_low_pt_scales[key] = None
         nprods = max([len(modes[key]) for key in modes.keys()])
         for key in modes.keys(): modes[key] += [modes[key][0]] * (nprods - len(modes[key]))
 
@@ -2029,14 +2066,14 @@ class Foresee(Utility, Decay):
 
             productions = model.production[key]["production"]
             dirname = self.model.modelpath+"model/LLP_spectra/"
-            filenames = [dirname+energy+"TeV_"+key+"_"+production+"_m_"+str(mass)+".npy" for production in modes[key]]
-
+            filename = dirname+energy+"TeV_"+"m_"+str(mass)+".txt.gz"
+            keys_llp  = [f"{key}({production})" for production in modes[key]]
+            
             # try Load Flux file
             try:
                 momenta, weights=self.convert_list_to_momenta(
-                    filenames=filenames, mass=mass,
-                    filetype="npy", nsample=nsample, preselectioncut=preselectioncuts,
-                    extend_to_low_pt_scale=extend_to_low_pt_scales[key])
+                    filename=filename, keys = keys_llp, mass=mass, nsample=nsample, preselectioncut=preselectioncuts)
+                
             except:
                 continue
                 
@@ -2114,14 +2151,13 @@ class Foresee(Utility, Decay):
 
             productions = model.production[key]["production"]
             dirname = self.model.modelpath+"model/LLP_spectra/"
-            filenames = [dirname+energy+"TeV_"+key+"_"+production+"_m_"+str(mass)+".npy" for production in modes[key]]
-            
+            filename = dirname+energy+"TeV_"+"m_"+str(mass)+".txt.gz"
+            keys_llp  = [f"{key}({production})" for production in modes[key]]
             # try Load Flux file
             try:
                 momenta, weights=self.convert_list_to_momenta(
-                    filenames=filenames, mass=mass,
-                    filetype="npy", nsample=nsample, preselectioncut=preselectioncuts,
-                    extend_to_low_pt_scale=None)
+                    filename=filename, keys = keys_llp, mass=mass,
+                    filetype="npy", nsample=nsample, preselectioncut=preselectioncuts)
             except:
                 continue
                 
@@ -2323,7 +2359,7 @@ class Foresee(Utility, Decay):
 
 
     def write_events(self, mass, coupling, energy, filename=None, numberevent=10, zfront=0, nsample=1,
-        notime=True, t0=0, modes=None, return_data=False, extend_to_low_pt_scales={},
+        notime=True, t0=0, modes=None, return_data=False,
         filetype="hepmc", preselectioncuts="th<0.01", weightnames=None):
         """
         A handle to the file writing functions
@@ -2349,8 +2385,6 @@ class Foresee(Utility, Decay):
         t0=0, modes=None
         return_data: bool
             Flag whether to return data and weight information
-        extend_to_low_pt_scales: dict
-            Scales for extending to low pt, with productions as keys
         filetype: str
             Specify "hepmc" or "csv"
         preselectioncuts: str
@@ -2371,7 +2405,7 @@ class Foresee(Utility, Decay):
         if weightnames is None: weightnames = modes[list(modes.keys())[0]]
 
         # get weighted sample of LLPs
-        _, _, _, weighted_raw_data, weights = self.get_events(mass=mass, energy=energy, couplings = [coupling], nsample=nsample, modes=modes, extend_to_low_pt_scales=extend_to_low_pt_scales, preselectioncuts=preselectioncuts)
+        _, _, _, weighted_raw_data, weights = self.get_events(mass=mass, energy=energy, couplings = [coupling], nsample=nsample, modes=modes, preselectioncuts=preselectioncuts)
         baseweights = weights[0].T[0]
 
         # unweight sample
@@ -2625,8 +2659,7 @@ class Foresee(Utility, Decay):
         masses, productions, condition="True", energy="14",
         xlims=[0.01,1],ylims=[10**-6,10**-3],
         xlabel=r"Mass [GeV]", ylabel=r"\sigma/\epsilon^2$ [pb]",
-        figsize=(7,5), fs_label=14, title=None, legendloc=None, dolegend=True, ncol=1, normalization_factor=1,
-    ):
+        figsize=(7,5), fs_label=14, title=None, legendloc=None, dolegend=True, ncol=1, normalization_factor=1):
         """
         Plot the production modes
 
@@ -2754,8 +2787,9 @@ class Foresee(Utility, Decay):
             Pyplot object
         """
         dirname = self.dirpath + "files/hadrons/"+energy+"TeV/"+generator+"/"
-        filenames = [dirname+generator+"_"+energy+"TeV_"+pid+".txt"]
-        p,w = self.convert_list_to_momenta(filenames,mass=self.masses(pid))
+        filename = dirname+generator+"_"+energy+"TeV.txt.gz"
+        filenames = [f"{pid}({generator})"]
+        p,w = self.convert_list_to_momenta(filename, keys, mass=self.masses(pid))
         plt,_,_,_ =self.convert_to_hist_list(p,w[:,0], do_plot=True, prange=prange)
         return plt
 

@@ -37,10 +37,10 @@ def notebookRunner(notebook,ref):
         print('No existing links detected')
 
     #Links from the working directory to relevant Model directory
-    os.symlink(src = src_path + 'Models/'+notebook+'/'+notebook+'.ipynb',\
+    os.symlink(src = os.path.normpath(src_path + 'Models/'+notebook+'/'+notebook+'.ipynb'),\
                dst = 'tmp_notebook.ipynb',\
                target_is_directory=False)
-    os.symlink(src = src_path + 'Models/'+notebook+'/model',\
+    os.symlink(src = os.path.normpath(src_path + 'Models/'+notebook+'/model'),\
                dst = 'model',\
                target_is_directory=True)
 

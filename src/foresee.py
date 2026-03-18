@@ -194,8 +194,9 @@ class Foresee(Utility, Decay):
         elif (self.model.production[key]["type"]=="3body") and (self.masses(pid0)<=self.masses(pid1,mass)+self.masses(pid2,mass)+mass): return [], []
 
         # load mother particle spectrum
-        filenames = [self.dirpath + "files/hadrons/"+energy+"TeV/"+gen+"/"+gen+"_"+energy+"TeV_"+pid0+".txt" for gen in generator]
-        momenta_mother, weights_mother = self.read_list_4momenta_weights(filenames,mass=self.masses(pid0), preselectioncut=preselectioncut, nsample=nsample_had)
+        filename = self.dirpath + "files/hadrons/"+energy+"TeV.txt.gz"
+        keys = [f"{pid0}({gen})" for gen in generator]
+        momenta_mother, weights_mother = self.read_list_4momenta_weights(filename, keys,mass=self.masses(pid0), preselectioncut=preselectioncut, nsample=nsample_had)
 
         # get sample of LLP momenta in the mother's rest frame
         if self.model.production[key]["type"] == "2body":
@@ -249,8 +250,9 @@ class Foresee(Utility, Decay):
             if mass<massrange[0] or mass>massrange[1]: return [], []
 
         # load mother particle spectrum
-        filenames = [self.dirpath + "files/hadrons/"+energy+"TeV/"+gen+"/"+gen+"_"+energy+"TeV_"+pid0+".txt" for gen in generator]
-        momenta_mother, weights_mother = self.read_list_4momenta_weights(filenames,mass=self.masses(pid0))
+        filename = self.dirpath + "files/hadrons/"+energy+"TeV.txt.gz"
+        keys = [f"{pid0}({gen})" for gen in generator]
+        momenta_mother, weights_mother = self.read_list_4momenta_weights(filename, keys,mass=self.masses(pid0))
 
         # z-axis angles and 3-momentum magnitudes from momenta
         momenta_lab = theta_p3_f_arr(momenta=momenta_mother)
@@ -298,11 +300,11 @@ class Foresee(Utility, Decay):
             if xmass> mass and xmass<mass1: mass1=xmass
 
         #load benchmark data
-        filenames0=[self.model.modelpath+"model/direct/"+energy+"TeV/"+config+"_"+energy+"TeV_"+str(mass0)+".txt" for config in configuration]
-        filenames1=[self.model.modelpath+"model/direct/"+energy+"TeV/"+config+"_"+energy+"TeV_"+str(mass1)+".txt" for config in configuration]
+        filename0 = self.model.modelpath+"model/direct/"+energy+"TeV/"+energy+"TeV_"+str(mass0)+".txt.gz"
+        filename1 = self.model.modelpath+"model/direct/"+energy+"TeV/"+energy+"TeV_"+str(mass1)+".txt.gz"
         try:
-            momenta_llp0, weights_llp0 = self.read_list_4momenta_weights(filenames0,mass=mass0,nocuts=True)
-            momenta_llp1, weights_llp1 = self.read_list_4momenta_weights(filenames1,mass=mass1,nocuts=True)
+            momenta_llp0, weights_llp0 = self.read_list_4momenta_weights(filename0, configuration,mass=mass0,nocuts=True)
+            momenta_llp1, weights_llp1 = self.read_list_4momenta_weights(filename1, configuration, mass=mass1,nocuts=True)
         except:
             print ("did not find file:", filenames0, "or", filenames1)
             return [], []
@@ -350,7 +352,9 @@ class Foresee(Utility, Decay):
         momenta_all, weights_all = np.array([[0.1,0.1]]), [0 ]
         dirname = self.model.modelpath+"model/LLP_spectra/"
         if not os.path.exists(dirname): os.mkdir(dirname)
-
+        
+        list_w, keys_llp, energy = [], [], 0
+        
         # loop over channels
         for key in self.model.production.keys():
 
@@ -367,14 +371,21 @@ class Foresee(Utility, Decay):
             if save_file==True and len(momenta)>0:
                 energy = self.model.production[key]["energy"]
                 for iproduction, production in enumerate(self.model.production[key]["production"]):
-                    filename = dirname+energy+"TeV_"+key+"_"+production+"_m_"+str(mass)+".npy"
-                    self.convert_to_hist_list(momenta, weights[:,iproduction], do_plot=False, filename=filename)
+                    key_llp = f"{key}({production})"
+                    data = self.convert_to_hist_list(momenta, weights[:,iproduction], do_plot=False)
+                    list_w.append(data[2])
+                    keys_llp.append(key_llp)
 
             #store mome
             if do_plot and len(momenta)>0:
                 momenta_all = np.concatenate((momenta_all, momenta), axis=0)
                 weights_all = np.concatenate((weights_all, weights[:,0]), axis=0)
 
+        if save_file==True and energy != 0:
+            logth, logp = data[0], data[1]
+            filename = dirname+energy+"TeV_"+"m_"+str(mass)+".txt.gz"
+            self.write_list_angle_momenta_weights(logth, logp, list_w, keys_llp, filename)
+        
         #return
         if do_plot:
             return self.convert_to_hist_list(momenta_all, weights_all, do_plot=do_plot)[0]
@@ -543,12 +554,12 @@ class Foresee(Utility, Decay):
 
             productions = model.production[key]["production"]
             dirname = self.model.modelpath+"model/LLP_spectra/"
-            filenames = [dirname+energy+"TeV_"+key+"_"+production+"_m_"+str(mass)+".npy" for production in modes[key]]
+            filename = dirname+energy+"TeV_"+"m_"+str(mass)+".txt.gz"
+            keys_llp  = [f"{key}({production})" for production in modes[key]]
 
             # try Load Flux file
             try:
-                momenta, weights =self.read_list_4momenta_weights(filenames=filenames, mass=mass,
-                    filetype="npy", nsample=nsample, preselectioncut=preselectioncuts)
+                momenta, weights =self.read_list_4momenta_weights(filename=filename, keys=keys_llp, mass=mass, nsample=nsample, preselectioncut=preselectioncuts)
             except:
                 continue
                 
@@ -637,13 +648,13 @@ class Foresee(Utility, Decay):
 
             productions = model.production[key]["production"]
             dirname = self.model.modelpath+"model/LLP_spectra/"
-            filenames = [dirname+energy+"TeV_"+key+"_"+production+"_m_"+str(mass)+".npy" for production in modes[key]]
+            filename = dirname+energy+"TeV_"+"m_"+str(mass)+".txt.gz"
+            keys_llp  = [f"{key}({production})" for production in modes[key]]
 
             # try Load Flux file
             try:
                 momenta, weights=self.read_list_4momenta_weights(
-                    filenames=filenames, mass=mass,
-                    filetype="npy", nsample=nsample, preselectioncut=preselectioncuts)
+                    filename=filename, keys=keys_llp, mass=mass, nsample=nsample, preselectioncut=preselectioncuts)
             except:
                 continue
                 
@@ -724,13 +735,12 @@ class Foresee(Utility, Decay):
 
             productions = model.production[key]["production"]
             dirname = self.model.modelpath+"model/LLP_spectra/"
-            filenames = [dirname+energy+"TeV_"+key+"_"+production+"_m_"+str(mass)+".npy" for production in modes[key]]
-            
+            filename = dirname+energy+"TeV_"+"m_"+str(mass)+".txt.gz"
+            keys_llp  = [f"{key}({production})" for production in modes[key]]
             # try Load Flux file
             try:
                 momenta, weights=self.read_list_4momenta_weights(
-                    filenames=filenames, mass=mass,
-                    filetype="npy", nsample=nsample, preselectioncut=preselectioncuts)
+                    filename=filename, keys=keys_llp, mass=mass, nsample=nsample, preselectioncut=preselectioncuts)
             except:
                 continue
                 
@@ -1363,8 +1373,9 @@ class Foresee(Utility, Decay):
             Pyplot object
         """
         dirname = self.dirpath + "files/hadrons/"+energy+"TeV/"+generator+"/"
-        filenames = [dirname+generator+"_"+energy+"TeV_"+pid+".txt"]
-        p,w = self.read_list_4momenta_weights(filenames,mass=self.masses(pid))
+        filename = dirname+generator+"_"+energy+"TeV.txt.gz"
+        keys = [f"{pid}({generator})"]
+        p,w = self.read_list_4momenta_weights(filename, keys,mass=self.masses(pid))
         plt,_,_,_ =self.convert_to_hist_list(p,w[:,0], do_plot=True, prange=prange)
         return plt
 

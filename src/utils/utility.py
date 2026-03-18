@@ -2,7 +2,7 @@ from particle import Particle
 import matplotlib
 from matplotlib import pyplot as plt
 import numpy as np
-import math
+import math, gzip
 from .vectors import *
 
 class Utility():
@@ -107,34 +107,76 @@ class Utility():
     #  Reading/Plotting Particle Tables
     ###############################
 
-    def read_list_angle_momenta_weights(self, filenames, filetype="txt"):
+    def read_list_angle_momenta_weights(self,filename, keys):
         """
-        Function to read file and return momenta, weights
-
+        Read a flattened grid of (logth, logp) points and associated weights from a
+        (optionally gzipped) text file written by write_list_angle_momenta_weights.
+    
         Parameters
         ----------
-        filenames: [str]
-            List of strings containing the input filepaths w/o/ datatype suffix.
-            Files typically stored under files/hadrons/
-        filetype: str
-            The suffix of the input filename(s) datatype w/o/ ".", e.g. "txt"
+        filename : str
+            Path to the file to read.  If it ends with '.gz' it is treated as
+            gzip-compressed.
+        keys : [str]
+            Column labels to extract (e.g. '111(EPOSLHC)' or 'Brem_FWW(p.pt<1)').
+            Must be a subset of the columns present in the file.
+    
         Returns
         -------
-            List of log10 of angle w.r.t z-axis,
-            list of log10 of momentum,
-            numpy array of xs values
+        list_th : [float]
+            The log-theta grid values.
+        list_p : [float]
+            The log-momentum grid values.
+        list_w : [[float]]
+            Weights for every requested key at every grid point.
+            list_w[i] corresponds to keys[i].
+    
+        Raises
+        ------
+        KeyError
+            If any of the requested keys are not found in the file header.
         """
+        open_func = gzip.open if filename.endswith(".gz") else open
+    
+        with open_func(filename, "rb") as f:
+            # --- parse header ---
+            raw_header = f.readline().decode().strip()
+            # Strip quotes that were added around key names during writing
+            header_cols = [col.strip('"') for col in raw_header.split()]
+    
+            idx_th = header_cols.index("logth")
+            idx_p  = header_cols.index("logp")
+    
+            missing = [k for k in keys if k not in header_cols]
+            if missing:
+                raise KeyError(f"Requested key(s) not found in file header: {missing}")
+    
+            idx_keys = [header_cols.index(k) for k in keys]
+    
+            # --- read data rows ---
+            list_th, list_p, list_w = [], [], [[] for _ in keys]
+    
+            for line in f:
+                line = line.decode().strip()
+                if not line:
+                    continue
+                parts = line.split()
+                list_th.append(float(parts[idx_th]))
+                list_p.append(float(parts[idx_p]))
+                
+                for out_idx, col_idx in enumerate(idx_keys):
+                    w = parts[col_idx]
+                    if w != 'NULL': list_w[out_idx].append(float(w))
+                    else: list_w[out_idx].append(np.nan)
+                        
+        mask = ~np.isnan(np.array(list_w)).any(axis=0)
+        list_th = [list_th[i] for i in range(len(list_th)) if mask[i]]
+        list_p = [list_p[i] for i in range(len(list_p)) if mask[i]]
+        list_w = np.array(list_w)[:, mask]
+    
+        return list_th, list_p, np.array(list_w).T
 
-        if type(filenames) == str: filenames=[filenames]
-        list_xs = []
-        for filename in filenames:
-            if filetype=="txt": list_logth, list_logp, weights = np.loadtxt(filename).T
-            elif filetype=="npy": list_logth, list_logp, weights = np.load(filename)
-            else: print ("ERROR: cannot read file type")
-            list_xs.append(weights)
-        return list_logth, list_logp, np.array(list_xs).T
-
-    def read_list_4momenta_weights(self,filenames,mass,filetype="txt",nsample=1,preselectioncut=None, nocuts=False):
+    def read_list_4momenta_weights(self,filename, keys, mass,nsample=1,preselectioncut=None, nocuts=False):
         """
         Function that converts input files under files/hadrons/ into meson spectra
 
@@ -145,8 +187,6 @@ class Utility():
             Files typically stored under files/hadrons/
         mass: float
             The mass of the considered particle
-        filetype: str
-            Datatype suffix for filenames, w/o/ dot, e.g. "txt"
         nsample: int
             Number of Monte Carlo samples to add into particles, and to divide weights by.
             Each entry in the filename(s) then results in nsample particles, so the total number
@@ -163,7 +203,7 @@ class Utility():
             corresponds to alternative cross sections / weights per particle
         """
         #read file
-        list_logth, list_logp, list_xs = self.read_list_angle_momenta_weights(filenames=filenames, filetype=filetype)
+        list_logth, list_logp, list_xs = self.read_list_angle_momenta_weights(filename=filename, keys=keys)
 
         phis,ths,pts,ens,weights = [],[],[],[],[]
         for logth,logp,xs in zip(list_logth,list_logp, list_xs):
@@ -201,8 +241,48 @@ class Utility():
         particles = LorentzArray({"pt": pts, "theta": ths, "phi": phis, "energy": ens})
 
         return particles, np.concatenate(weights)
-        
-    def convert_list_to_momenta(self,filenames,mass,filetype="txt",nsample=1,preselectioncut=None, nocuts=False):
+
+    def write_list_angle_momenta_weights(self, list_th, list_p, list_w, keys, filename="output.txt.gz"):
+        """
+        Write a flattened grid of (logth, logp) points and associated weights to a
+        gzipped text file.
+    
+        Parameters
+        ----------
+        list_th : array-like of float
+            The log-theta grid values.
+        list_p : array-like of float
+            The log-momentum grid values.
+        list_w : list of list of float
+            Weights for every key at every grid point.
+        keys : list of str
+            Column labels (e.g. '111(EPOSLHC)' or 'Brem_FWW(p.pt<1)').
+        filename : str
+            Output path.  If it ends with '.gz' the file is gzip-compressed.
+        """
+        n_points = len(list_th)
+    
+       
+        # Build the header line
+        header_parts = ["logth", "logp"] + [f'{k}' for k in keys]
+        header = " ".join(header_parts)
+    
+        open_func = gzip.open if filename.endswith(".gz") else open
+    
+        with open_func(filename, "wb") as f:
+            f.write((header + "\r\n").encode())
+    
+            for i in range(n_points):
+                row_parts = [str(list_th[i]), str(list_p[i])]
+                for k in range(len(keys)):
+                    row_parts.append(str(list_w[k][i]))
+                f.write((" ".join(row_parts) + "\r\n").encode())
+        print(f"spectra saved:\t{filename}")
+
+
+
+    
+    def convert_list_to_momenta(self,filename, keys,mass,filetype="txt",nsample=1,preselectioncut=None, nocuts=False):
         """
         Old name of function "read_list_4momenta_weights".
         Please replace by "read_list_4momenta_weights".
@@ -210,7 +290,7 @@ class Utility():
         """
         ## TODO: remov function when its safe to do so
         print ("Warning: Foresee.convert_list_to_momenta() will be depreciated soon. Replace it with Foresee.read_list_4momenta_weights().")
-        return self.read_list_4momenta_weights(filenames,mass,filetype,nsample,preselectioncut,nocuts)
+        return self.read_list_4momenta_weights(filename, keys, mass,nsample,preselectioncut,nocuts)
 
 
     def get_hist_list(self, tx, px, weights, prange):

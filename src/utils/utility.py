@@ -182,9 +182,12 @@ class Utility():
 
         Parameters
         ----------
-        filenames: [str]
-            List of strings containing the input filepaths w/o/ datatype suffix.
-            Files typically stored under files/hadrons/
+        filename : str
+            Path to the file to read.  If it ends with '.gz' it is treated as
+            gzip-compressed.
+        keys : [str]
+            Column labels to extract (e.g. '111(EPOSLHC)' or 'Brem_FWW(p.pt<1)').
+            Must be a subset of the columns present in the file.
         mass: float
             The mass of the considered particle
         nsample: int

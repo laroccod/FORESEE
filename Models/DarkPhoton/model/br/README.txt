@@ -2,16 +2,6 @@
 ---- Translation of File naming ----
 ------------------------------------
 
------------------------------------
----- Combined Branching ratios ----
------------------------------------
-can be found in the model folder
-
-invisible: invisible final states= neutrinos + DM (if considered)
-visible: all hadronic state and charged leptons
-qcd: combined results of non-perturbative and perturbative hadronic results with whatever is valid for a certain mass
-leptons: all leptons (charged and neutral leptons)
-
 -----------------------------
 ---- Individual Channels ----
 -----------------------------
@@ -23,10 +13,6 @@ in both brs/ and widths/, you can find the Branching ratios/widths for individua
 
 elec: e+ e-
 muon: mu+ mu-
-tau: tau+ tau-
-nue: nu_e (electron neutrino) nubar_e (electron anti-neutrino)
-numu: nu_mu (muon neutrino) nubar_mu (muon anti-neutrino)
-nutau: nu_tau (tau neutrino) nubar_tau (tau anti-neutrino)
 
 ---------------------------
 ---- hadronic channels ----
@@ -58,7 +44,6 @@ ppbar = proton anti-proton
 --------------------------
 --hadronic sub-channels --
 --------------------------
-files starting with "single" contain branching ratios and widths of channels that have hadronic sub-channels
 
 4pi_c: 2pi+ 2pi-
 4pi_n: pi+ pi- 2pi0

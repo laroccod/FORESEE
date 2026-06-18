@@ -10,7 +10,27 @@ from .utils.model import Model
 from .utils.decay import Decay
 from matplotlib import gridspec
 from numba import jit
-            
+
+
+# Shared figure styling for every plot routine (spectrum, production, reach).
+# Locked once so all paper figures share one look: serif text with Computer
+# Modern math, base/label size 16, legend 13. Applied via rcParams.update at
+# the top of each plotting method.
+PLOT_RCPARAMS = {
+    "font.size": 16,
+    "font.family": "serif",
+    "mathtext.fontset": "cm",
+    "axes.labelsize": 16,
+    "legend.fontsize": 13,
+}
+
+
+def energy_stem(energy):
+    # spectrum-file stem: LHC energies get "TeV" appended ("13.6"->"13.6TeV"),
+    # fixed-target labels already carry their unit and are used verbatim ("FT-120GeV")
+    energy = str(energy)
+    return energy if "GeV" in energy else energy + "TeV"
+
 
 ##############################################
 ##############################################
@@ -45,6 +65,72 @@ class Foresee(Utility, Decay):
 
     def set_model(self,model):
         self.model = model
+
+    def load_model(self, name, **params):
+        """
+        Load a predefined model by name and return a configured Model
+
+        Locates Models/<name>/build.py and calls its build_model(path, **params).
+        If the builder also defines build_presets(model, **params), the resulting
+        dict is attached as model.presets for the signature notebooks to use.
+
+        Parameters
+        ----------
+        name: str
+            Model name. Either the directory under Models/ ("DarkPhoton",
+            "HNL/HNL-e") or a bare model name resolved to a unique nested
+            directory ("HNL-e" -> Models/HNL/HNL-e/)
+        **params
+            Forwarded to the model's build_model (and build_presets, if present).
+            See Models/<name>/build.py for the supported keys
+
+        Returns
+        -------
+            A configured Model, ready to pass to set_model
+        """
+        import glob
+        import importlib.util
+        import os
+
+        # locate Models/<name>/build.py; if the direct path misses, search
+        # Models/**/build.py for a directory whose basename matches name
+        # (e.g. "HNL-e" -> Models/HNL/HNL-e/)
+        model_dir = os.path.join(self.dirpath, "Models", name)
+        build_path = os.path.join(model_dir, "build.py")
+        if not os.path.isfile(build_path):
+            candidates = [
+                p for p in glob.glob(
+                    os.path.join(self.dirpath, "Models", "**", "build.py"), recursive=True
+                )
+                if os.path.basename(os.path.dirname(p)) == name
+            ]
+            if len(candidates) == 1:
+                build_path = candidates[0]
+                model_dir = os.path.dirname(build_path)
+            elif len(candidates) > 1:
+                raise FileNotFoundError(
+                    f"Ambiguous model name '{name}': multiple builders {candidates}. "
+                    f"Pass the path under Models/ to disambiguate."
+                )
+            else:
+                raise FileNotFoundError(
+                    f"No builder found for model '{name}'. Expected {build_path} "
+                    f"or a unique Models/**/{name}/build.py. "
+                    f"See Models/*/build.py for available builders."
+                )
+        spec = importlib.util.spec_from_file_location(
+            f"foresee_model_{name.replace('-', '_')}", build_path
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        if not hasattr(module, "build_model"):
+            raise AttributeError(
+                f"{build_path} must define a build_model(path, **params) function."
+            )
+        model = module.build_model(path=model_dir + os.sep, **params)
+        if hasattr(module, "build_presets"):
+            model.presets = module.build_presets(model, **params)
+        return model
 
     ###############################
     #  Decay in Flight Probability
@@ -194,9 +280,11 @@ class Foresee(Utility, Decay):
         elif (self.model.production[key]["type"]=="3body") and (self.masses(pid0)<=self.masses(pid1,mass)+self.masses(pid2,mass)+mass): return [], []
 
         # load mother particle spectrum
-        filename = self.dirpath + "files/hadrons/"+energy+"TeV.txt.gz"
+        filename = self.dirpath + "files/hadrons/"+energy_stem(energy)+".txt.gz"
         keys = [f"{pid0}({gen})" for gen in generator]
-        momenta_mother, weights_mother = self.read_list_4momenta_weights(filename, keys,mass=self.masses(pid0), preselectioncut=preselectioncut, nsample=nsample_had)
+        # skip_missing: mesons/generators absent at this beam contribute zero instead of aborting
+        momenta_mother, weights_mother = self.read_list_4momenta_weights(filename, keys,mass=self.masses(pid0), preselectioncut=preselectioncut, nsample=nsample_had, skip_missing=True)
+        if len(momenta_mother) == 0: return [], []   # meson absent at this beam
 
         # get sample of LLP momenta in the mother's rest frame
         if self.model.production[key]["type"] == "2body":
@@ -250,9 +338,10 @@ class Foresee(Utility, Decay):
             if mass<massrange[0] or mass>massrange[1]: return [], []
 
         # load mother particle spectrum
-        filename = self.dirpath + "files/hadrons/"+energy+"TeV.txt.gz"
+        filename = self.dirpath + "files/hadrons/"+energy_stem(energy)+".txt.gz"
         keys = [f"{pid0}({gen})" for gen in generator]
-        momenta_mother, weights_mother = self.read_list_4momenta_weights(filename, keys,mass=self.masses(pid0))
+        momenta_mother, weights_mother = self.read_list_4momenta_weights(filename, keys,mass=self.masses(pid0), skip_missing=True)
+        if len(momenta_mother) == 0: return [], []   # mother absent at this beam
 
         # z-axis angles and 3-momentum magnitudes from momenta
         momenta_lab = theta_p3_f_arr(momenta=momenta_mother)
@@ -299,14 +388,15 @@ class Foresee(Utility, Decay):
             if xmass<=mass and xmass>mass0: mass0=xmass
             if xmass> mass and xmass<mass1: mass1=xmass
 
-        #load benchmark data
-        filename0 = self.model.modelpath+"model/direct/"+energy+"TeV/"+energy+"TeV_"+str(mass0)+".txt.gz"
-        filename1 = self.model.modelpath+"model/direct/"+energy+"TeV/"+energy+"TeV_"+str(mass1)+".txt.gz"
+        # one file per energy, columns named "<mass>(<configuration>)" (e.g. "0.01(Brem_QRA_L1.5)")
+        filename = self.model.modelpath+"model/direct/"+energy_stem(energy)+".txt.gz"
+        keys0 = [f"{mass0}({c})" for c in configuration]
+        keys1 = [f"{mass1}({c})" for c in configuration]
         try:
-            momenta_llp0, weights_llp0 = self.read_list_4momenta_weights(filename0, configuration,mass=mass0,nocuts=True)
-            momenta_llp1, weights_llp1 = self.read_list_4momenta_weights(filename1, configuration, mass=mass1,nocuts=True)
+            momenta_llp0, weights_llp0 = self.read_list_4momenta_weights(filename, keys0, mass=mass0, nocuts=True)
+            momenta_llp1, weights_llp1 = self.read_list_4momenta_weights(filename, keys1, mass=mass1, nocuts=True)
         except:
-            print ("did not find file:", filename0, "or", filename1)
+            print ("did not find file or columns:", filename, keys0, "or", keys1)
             return [], []
 
         # z-axis angles and 3-momentum magnitudes from momenta
@@ -383,7 +473,7 @@ class Foresee(Utility, Decay):
 
         if save_file==True and energy != 0:
             logth, logp = data[0], data[1]
-            filename = dirname+energy+"TeV_"+"m_"+str(mass)+".txt.gz"
+            filename = dirname+energy_stem(energy)+"_"+"m_"+str(mass)+".txt.gz"
             self.write_list_angle_momenta_weights(logth, logp, list_w, keys_llp, filename)
         
         #return
@@ -554,7 +644,7 @@ class Foresee(Utility, Decay):
 
             productions = model.production[key]["production"]
             dirname = self.model.modelpath+"model/LLP_spectra/"
-            filename = dirname+energy+"TeV_"+"m_"+str(mass)+".txt.gz"
+            filename = dirname+energy_stem(energy)+"_"+"m_"+str(mass)+".txt.gz"
             keys_llp  = [f"{key}({production})" for production in modes[key]]
 
             # try Load Flux file
@@ -648,7 +738,7 @@ class Foresee(Utility, Decay):
 
             productions = model.production[key]["production"]
             dirname = self.model.modelpath+"model/LLP_spectra/"
-            filename = dirname+energy+"TeV_"+"m_"+str(mass)+".txt.gz"
+            filename = dirname+energy_stem(energy)+"_"+"m_"+str(mass)+".txt.gz"
             keys_llp  = [f"{key}({production})" for production in modes[key]]
 
             # try Load Flux file
@@ -735,7 +825,7 @@ class Foresee(Utility, Decay):
 
             productions = model.production[key]["production"]
             dirname = self.model.modelpath+"model/LLP_spectra/"
-            filename = dirname+energy+"TeV_"+"m_"+str(mass)+".txt.gz"
+            filename = dirname+energy_stem(energy)+"_"+"m_"+str(mass)+".txt.gz"
             keys_llp  = [f"{key}({production})" for production in modes[key]]
             # try Load Flux file
             try:
@@ -1085,11 +1175,11 @@ class Foresee(Utility, Decay):
         f.close()
 
     def plot_reach(self,
-            setups, bounds, projections, bounds2=[], grids=[],
+            setups, bounds, projections, bounds2=[], grids=[], lines=[],
             title=None, linewidths=None, xlabel=r"Mass [GeV]", ylabel=r"Coupling",
-            xlims=[0.01,1],ylims=[10**-6,10**-3], figsize=(7,5), legendloc=None,
+            xlims=[0.01,1],ylims=[10**-6,10**-3], figsize=(7,7), legendloc=None,
             branchings=None, branchingsother=None,
-            fs_label=14, confidence_interval=False,
+            fs_label=13, confidence_interval=False,
         ):
         """
         Produce reach plot
@@ -1114,6 +1204,11 @@ class Foresee(Utility, Decay):
             List of arrays specifying any irregular grids. See scipy.interpolate.griddata
             Each array contains:
             label, 2D grid points, values, color, linestyle
+        lines: [[str, str, float, [[str,float,float,float], ...]]]
+            Extra annotated curves to overlay (e.g. a relic-density target). Each
+            array contains: filename in model/lines directory, color, line width,
+            and a list of text labels, each [text, x, y, rotation]. Drawn on top of
+            the bounds at fs_label font size in the line's color.
         title: str
             Main title above the plot
         linewidths: float, [float]
@@ -1134,7 +1229,7 @@ class Foresee(Utility, Decay):
         """
 
         # initiate figure
-        matplotlib.rcParams.update({'font.size': 15})
+        matplotlib.rcParams.update(PLOT_RCPARAMS)
 
         if branchings is None:
             fig, ax = plt.subplots(figsize=figsize)
@@ -1205,6 +1300,14 @@ class Foresee(Utility, Decay):
             ax.plot([0,0],[0,0], color=color,zorder=-1000, linestyle=ls, label=label)
             zorder+=1
 
+        # extra annotated curves (e.g. relic-density targets) with text labels
+        for filename, color, lw, texts in lines:
+            data = np.loadtxt(self.model.modelpath+"model/lines/"+filename)
+            ax.plot(data.T[0], data.T[1], color=color, lw=lw, zorder=zorder)
+            for text, posx, posy, rotation in texts:
+                ax.text(posx, posy, text, fontsize=fs_label, color=color, rotation=rotation)
+            zorder+=1
+
         #frame
         ax.set_title(title)
         ax.set_xscale("log")
@@ -1243,8 +1346,9 @@ class Foresee(Utility, Decay):
     def plot_production(self,
         masses, productions, condition="True", energy="14",
         xlims=[0.01,1],ylims=[10**-6,10**-3],
-        xlabel=r"Mass [GeV]", ylabel=r"\sigma/\epsilon^2$ [pb]",
-        figsize=(7,5), fs_label=14, title=None, legendloc=None, dolegend=True, ncol=1, normalization_factor=1,
+        xlabel=r"Mass [GeV]", ylabel=r"$\sigma/\epsilon^2$ [pb]",
+        figsize=(7,5), fs_label=13, title=None, legendloc=None, dolegend=True, ncol=1, normalization_factor=1,
+        branchings=None, branchingsother=None,
     ):
         """
         Plot the production modes
@@ -1283,13 +1387,27 @@ class Foresee(Utility, Decay):
             Flag whether to include legend in plot
         ncol: int
             Number of columns for legend formatting
+        branchings: [[str,str,str,str,float,float]], None
+            Decay branching-fraction curves to draw in a sub-panel below the
+            production plot (sharing the mass axis). Each entry is
+            [channel, color, linestyle, label, label_x, label_y]. When None,
+            no sub-panel is drawn. (Relocated here from plot_reach.)
+        branchingsother: [str,str,str,float,float,[float,float]], None
+            Optional "all other modes" curve for the sub-panel:
+            [color, linestyle, label, label_x, label_y, [mass_min, mass_max]];
+            drawn as 1 - sum(branchings).
         Returns
         -------
-            Pyplot object
+            Pyplot object, or (Pyplot, ax, ax2) when a branchings sub-panel is drawn
         """
         # initiate figure
-        matplotlib.rcParams.update({'font.size': 15})
-        fig, ax = plt.subplots(figsize=figsize)
+        matplotlib.rcParams.update(PLOT_RCPARAMS)
+        if branchings is None:
+            fig, ax = plt.subplots(figsize=figsize)
+        else:
+            fig = plt.figure(figsize=figsize)
+            spec = gridspec.GridSpec(nrows=2, ncols=1, height_ratios=[1, 0.3], hspace=0)
+            ax = fig.add_subplot(spec[0])
 
         # loop over production channels
         dirname = self.model.modelpath+"model/LLP_spectra/"
@@ -1323,7 +1441,7 @@ class Foresee(Utility, Decay):
                     total = 0
                     for channel in channels:
                        
-                        filename = dirname+energy+"TeV_"+"m_"+str(mass)+".txt.gz"
+                        filename = dirname+energy_stem(energy)+"_"+"m_"+str(mass)+".txt.gz"
                         key_llp  = f"{channel}({generator})"
                        
                         try:
@@ -1350,12 +1468,36 @@ class Foresee(Utility, Decay):
         ax.set_yscale("log")
         ax.set_xlim(xlims[0],xlims[1])
         ax.set_ylim(ylims[0],ylims[1])
-        ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
         if dolegend: ax.legend(loc="upper right", bbox_to_anchor=legendloc, frameon=False, labelspacing=0, fontsize=fs_label, ncol=ncol)
 
-        # return
-        return plt
+        # No branching sub-panel: the production plot owns the mass axis label.
+        if branchings is None:
+            ax.set_xlabel(xlabel)
+            return plt
+
+        # branching-fraction sub-panel sharing the mass axis
+        ax.tick_params(axis="x", direction="in", pad=-15)
+        ax.set_xticklabels([])
+        ax2 = fig.add_subplot(spec[1])
+        for channel, color, ls, label, posx, posy in branchings:
+            br_masses = np.logspace(np.log10(xlims[0]), np.log10(xlims[1]), 1000)
+            brvals = [self.model.get_br(channel, mass, 1) for mass in br_masses]
+            ax2.plot(br_masses, brvals, color=color, ls=ls)
+            ax2.text(posx, posy, label, fontsize=fs_label, color=color)
+        if branchingsother is not None:
+            color, ls, label, posx, posy, brange = branchingsother
+            br_masses = np.logspace(np.log10(brange[0]), np.log10(brange[1]), 1000)
+            brvals = [1 - sum(self.model.get_br(b[0], mass, 1) for b in branchings) for mass in br_masses]
+            ax2.plot(br_masses, brvals, color=color, ls=ls)
+            ax2.text(posx, posy, label, fontsize=fs_label, color=color)
+        ax2.set_xscale("log")
+        ax2.set_yscale("log")
+        ax2.set_xlim(xlims[0], xlims[1])
+        ax2.set_ylim(0.01, 1.5)
+        ax2.set_xlabel(xlabel)
+        ax2.set_ylabel("BR")
+        return plt, ax, ax2
 
     # show 2d hadronspectrum
     def get_spectrumplot(self, pid="111", generator="EPOSLHC", energy="14", prange=[[-6, 0, 60],[ 0, 4, 40]]):
@@ -1377,7 +1519,7 @@ class Foresee(Utility, Decay):
         -------
             Pyplot object
         """
-        filename = self.dirpath + "files/hadrons/"+energy+"TeV.txt.gz"
+        filename = self.dirpath + "files/hadrons/"+energy_stem(energy)+".txt.gz"
         keys = [f"{pid}({generator})"]
         p,w = self.read_list_4momenta_weights(filename, keys,mass=self.masses(pid))
         plt,_,_,_ =self.convert_to_hist_list(p,w[:,0], do_plot=True, prange=prange)
@@ -1430,7 +1572,7 @@ class Foresee(Utility, Decay):
             Pyplot object
         """
         # initiate figure
-        matplotlib.rcParams.update({'font.size': 15})
+        matplotlib.rcParams.update(PLOT_RCPARAMS)
         fig, ax = plt.subplots(figsize=figsize)
 
         # loop over production channels

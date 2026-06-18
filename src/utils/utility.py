@@ -2,8 +2,32 @@ from particle import Particle
 import matplotlib
 from matplotlib import pyplot as plt
 import numpy as np
-import math, gzip
+import math, gzip, os, sys
 from .vectors import *
+
+# shared mass grid (0.001-10 GeV) for the precomputed bremsstrahlung spectra
+BREM_MASSES = [
+    0.001, 0.002, 0.003, 0.005, 0.007,
+    0.01, 0.015, 0.02, 0.03,
+    0.04, 0.06, 0.08, 0.1, 0.14, 0.175, 0.21, 0.245, 0.28,
+    0.315, 0.35, 0.385, 0.42, 0.455, 0.49, 0.525, 0.56, 0.595,
+    0.63, 0.665, 0.7, 0.71, 0.72, 0.73, 0.74, 0.75, 0.76,
+    0.77, 0.78, 0.79, 0.8, 0.81, 0.82, 0.83, 0.84, 0.85,
+    0.86, 0.87, 0.88, 0.89, 0.9, 0.91, 0.92, 0.93, 0.94,
+    0.95, 0.96, 0.97, 0.98, 0.99, 1.0, 1.01, 1.02, 1.03,
+    1.04, 1.05, 1.06, 1.07, 1.08, 1.09, 1.1, 1.12, 1.14,
+    1.16, 1.18, 1.2, 1.22, 1.24, 1.26, 1.28, 1.3, 1.32,
+    1.34, 1.36, 1.38, 1.4, 1.42, 1.44, 1.46, 1.48, 1.5,
+    1.525, 1.55, 1.575, 1.6, 1.625, 1.65, 1.675, 1.7, 1.725,
+    1.75, 1.775, 1.8, 1.825, 1.85, 1.875, 1.9, 1.95, 2.0,
+    2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 3.0,
+    3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9, 4.0,
+    4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 4.9, 5.0,
+    5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8, 5.9, 6.0,
+    6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8, 6.9, 7.0,
+    8.2, 8.4, 8.6, 8.8, 9.0,
+    9.2, 9.4, 9.6, 9.8, 10.0,
+]
 
 class Utility():
 
@@ -107,11 +131,32 @@ class Utility():
     #  Reading/Plotting Particle Tables
     ###############################
 
-    def read_list_angle_momenta_weights(self,filename, keys):
+    def warn_missing_columns(self, filename, missing):
+        """
+        Warn once per (file, missing-keys) about skipped columns
+
+        Parameters
+        ----------
+        filename : str
+            File whose header was missing columns
+        missing : [str]
+            The absent column keys, zero-filled instead of read
+        """
+        cache = getattr(self, "warned_missing", None)
+        if cache is None:
+            cache = self.warned_missing = set()
+        tag = (filename, tuple(sorted(missing)))
+        if tag in cache:
+            return
+        cache.add(tag)
+        print(f"[skip] {os.path.basename(filename)}: no column for {missing} "
+              f"- contributing zero at this energy")
+
+    def read_list_angle_momenta_weights(self,filename, keys, skip_missing=False):
         """
         Read a flattened grid of (logth, logp) points and associated weights from a
         (optionally gzipped) text file written by write_list_angle_momenta_weights.
-    
+
         Parameters
         ----------
         filename : str
@@ -120,7 +165,11 @@ class Utility():
         keys : [str]
             Column labels to extract (e.g. '111(EPOSLHC)' or 'Brem_FWW(p.pt<1)').
             Must be a subset of the columns present in the file.
-    
+        skip_missing : bool
+            If False (default) a key absent from the file header raises KeyError.
+            If True, absent keys return all-zero columns instead, so a channel
+            with no spectrum at this beam energy contributes zero.
+
         Returns
         -------
         list_th : [float]
@@ -130,32 +179,35 @@ class Utility():
         list_w : [[float]]
             Weights for every requested key at every grid point.
             list_w[i] corresponds to keys[i].
-    
+
         Raises
         ------
         KeyError
-            If any of the requested keys are not found in the file header.
+            If any requested key is not in the file header and skip_missing is False.
         """
         open_func = gzip.open if filename.endswith(".gz") else open
-    
+
         with open_func(filename, "rb") as f:
             # --- parse header ---
             raw_header = f.readline().decode().strip()
             # Strip quotes that were added around key names during writing
             header_cols = [col.strip('"') for col in raw_header.split()]
-    
+
             idx_th = header_cols.index("logth")
             idx_p  = header_cols.index("logp")
-    
+
             missing = [k for k in keys if k not in header_cols]
-            if missing:
+            if missing and not skip_missing:
                 raise KeyError(f"Requested key(s) not found in file header: {missing}")
-    
-            idx_keys = [header_cols.index(k) for k in keys]
-    
+            if missing:
+                self.warn_missing_columns(filename, missing)
+
+            # None marks a missing column -> emitted as zeros below.
+            idx_keys = [header_cols.index(k) if k in header_cols else None for k in keys]
+
             # --- read data rows ---
             list_th, list_p, list_w = [], [], [[] for _ in keys]
-    
+
             for line in f:
                 line = line.decode().strip()
                 if not line:
@@ -163,8 +215,12 @@ class Utility():
                 parts = line.split()
                 list_th.append(float(parts[idx_th]))
                 list_p.append(float(parts[idx_p]))
-                
+
                 for out_idx, col_idx in enumerate(idx_keys):
+                    # missing key (skip_missing): fill a zero column
+                    if col_idx is None:
+                        list_w[out_idx].append(0.0)
+                        continue
                     w = parts[col_idx]
                     if w != 'NULL': list_w[out_idx].append(float(w))
                     else: list_w[out_idx].append(np.nan)
@@ -176,7 +232,7 @@ class Utility():
     
         return list_th, list_p, np.array(list_w).T
 
-    def read_list_4momenta_weights(self,filename, keys, mass,nsample=1,preselectioncut=None, nocuts=False):
+    def read_list_4momenta_weights(self,filename, keys, mass,nsample=1,preselectioncut=None, nocuts=False, skip_missing=False):
         """
         Function that converts input files under files/hadrons/ into meson spectra
 
@@ -206,7 +262,7 @@ class Utility():
             corresponds to alternative cross sections / weights per particle
         """
         #read file
-        list_logth, list_logp, list_xs = self.read_list_angle_momenta_weights(filename=filename, keys=keys)
+        list_logth, list_logp, list_xs = self.read_list_angle_momenta_weights(filename=filename, keys=keys, skip_missing=skip_missing)
 
         phis,ths,pts,ens,weights = [],[],[],[],[]
         for logth,logp,xs in zip(list_logth,list_logp, list_xs):
@@ -234,6 +290,10 @@ class Utility():
             
             weights.append( np.ones((nsample,1)) * np.array(xs)/float(nsample) )
                 
+        # no surviving particles: return empty so the caller drops this channel
+        if len(phis) == 0:
+            return [], np.array([])
+
         #Flatten
         phis = np.concatenate(phis)
         ths  = np.concatenate(ths)
@@ -447,3 +507,62 @@ class Utility():
         ax.set_xlim(tmin, tmax)
         ax.set_ylim(pmin, pmax)
         return plt
+
+
+###############################
+#  Model Filesystem Layout
+###############################
+
+def ensure_model_layout(model_dir, *, link_direct=False, direct_name=None):
+    """
+    Symlink the data layout a Model expects into model_dir
+
+    Links <model_dir>/model/ to Models/<Name>/model/, and (if link_direct)
+    <model_dir>/model/direct/ to files/direct/<Name>/. Idempotent.
+
+    Parameters
+    ----------
+    model_dir: str
+        Path passed as path into build_model, typically Models/<Name>/
+    link_direct: bool
+        Also link the shared direct-production spectra. Pass True for builders
+        that call Model.add_production_direct. Defaults to False
+    direct_name: str
+        Which files/direct/<dir>/ to link, if not the model's own name (e.g.
+        DarkPhoton+DarkHiggs reuses files/direct/DarkPhoton/). Ignored unless
+        link_direct=True
+    """
+    model_dir = os.path.abspath(model_dir)
+    name = os.path.basename(model_dir.rstrip(os.sep))
+    foresee_root = os.path.abspath(os.path.join(model_dir, "..", ".."))
+
+    inner = os.path.join(model_dir, "model")
+    create_symlink(os.path.join(foresee_root, "Models", name, "model"), inner)
+
+    if link_direct:
+        create_symlink(
+            os.path.join(foresee_root, "files", "direct", direct_name or name),
+            os.path.join(inner, "direct"),
+        )
+
+
+def create_symlink(target, linkname):
+    """
+    Symlink linkname -> target, unless linkname already exists
+
+    No-op if linkname is already a directory or symlink. Raises with a
+    Windows-specific hint when os.symlink is forbidden by the platform.
+    """
+    if os.path.isdir(linkname) or os.path.islink(linkname):
+        return
+    try:
+        os.symlink(target, linkname, target_is_directory=True)
+    except OSError as e:
+        if sys.platform == "win32":
+            raise OSError(
+                f"Failed to create symlink {linkname} -> {target}. On Windows, "
+                f"enable Developer Mode (Settings > Privacy & security > For developers) "
+                f"or run Python as administrator so os.symlink is permitted. "
+                f"Original error: {e}"
+            ) from e
+        raise

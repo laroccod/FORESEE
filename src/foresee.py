@@ -9,6 +9,7 @@ from .utils.utility import Utility
 from .utils.model import Model
 from .utils.decay import Decay
 from matplotlib import gridspec
+from matplotlib.ticker import FixedFormatter, NullFormatter
 from numba import jit
 
 
@@ -17,10 +18,10 @@ from numba import jit
 # Modern math, base/label size 16, legend 13. Applied via rcParams.update at
 # the top of each plotting method.
 PLOT_RCPARAMS = {
-    "font.size": 16,
-    "font.family": "serif",
-    "mathtext.fontset": "cm",
-    "axes.labelsize": 16,
+    "font.size": 15,
+    "font.family": "sans-serif",
+    "mathtext.fontset": "dejavusans",
+    "axes.labelsize": 15,
     "legend.fontsize": 13,
 }
 
@@ -1177,9 +1178,9 @@ class Foresee(Utility, Decay):
     def plot_reach(self,
             setups, bounds, projections, bounds2=[], grids=[], lines=[],
             title=None, linewidths=None, xlabel=r"Mass [GeV]", ylabel=r"Coupling",
-            xlims=[0.01,1],ylims=[10**-6,10**-3], figsize=(7,7), legendloc=None,
+            xlims=[0.01,1],ylims=[10**-6,10**-3], figsize=(7,6), legendloc=None,
             branchings=None, branchingsother=None,
-            fs_label=13, confidence_interval=False,
+            fs_label=11, confidence_interval=False,
         ):
         """
         Produce reach plot
@@ -1316,7 +1317,7 @@ class Foresee(Utility, Decay):
         ax.set_ylim(ylims[0],ylims[1])
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
-        ax.legend(loc="upper right", bbox_to_anchor=legendloc, frameon=False, labelspacing=0)
+        ax.legend(loc="upper right", bbox_to_anchor=legendloc, frameon=False, labelspacing=0, handlelength=1.5)
 
         if branchings is not None:
             ax.tick_params(axis="x",direction="in", pad=-15)
@@ -1347,7 +1348,7 @@ class Foresee(Utility, Decay):
         masses, productions, condition="True", energy="14",
         xlims=[0.01,1],ylims=[10**-6,10**-3],
         xlabel=r"Mass [GeV]", ylabel=r"$\sigma/\epsilon^2$ [pb]",
-        figsize=(7,5), fs_label=13, title=None, legendloc=None, dolegend=True, ncol=1, normalization_factor=1,
+        figsize=(7,6), fs_label=13, fs_label_br=None, title=None, legendloc=None, dolegend=True, ncol=1, normalization_factor=1,
         branchings=None, branchingsother=None,
     ):
         """
@@ -1378,7 +1379,10 @@ class Foresee(Utility, Decay):
         figsize: (float,float)
             The (horizontal,vertical) dimensions of the figure to produce
         fs_label: float
-            Label font size
+            Label font size (legend and production-panel text)
+        fs_label_br: float, None
+            Font size for the branching-fraction sub-panel labels. Defaults to
+            fs_label when None.
         title: str, None
             Main plot title
         legendloc: BboxBase, 2-tuple, 4-tuple of floats
@@ -1406,7 +1410,7 @@ class Foresee(Utility, Decay):
             fig, ax = plt.subplots(figsize=figsize)
         else:
             fig = plt.figure(figsize=figsize)
-            spec = gridspec.GridSpec(nrows=2, ncols=1, height_ratios=[1, 0.3], hspace=0)
+            spec = gridspec.GridSpec(nrows=2, ncols=1, height_ratios=[2, 1], hspace=0)
             ax = fig.add_subplot(spec[0])
 
         # loop over production channels
@@ -1477,6 +1481,7 @@ class Foresee(Utility, Decay):
             return plt
 
         # branching-fraction sub-panel sharing the mass axis
+        if fs_label_br is None: fs_label_br = fs_label
         ax.tick_params(axis="x", direction="in", pad=-15)
         ax.set_xticklabels([])
         ax2 = fig.add_subplot(spec[1])
@@ -1484,17 +1489,20 @@ class Foresee(Utility, Decay):
             br_masses = np.logspace(np.log10(xlims[0]), np.log10(xlims[1]), 1000)
             brvals = [self.model.get_br(channel, mass, 1) for mass in br_masses]
             ax2.plot(br_masses, brvals, color=color, ls=ls)
-            ax2.text(posx, posy, label, fontsize=fs_label, color=color)
+            ax2.text(posx, posy, label, fontsize=fs_label_br, color=color)
         if branchingsother is not None:
             color, ls, label, posx, posy, brange = branchingsother
             br_masses = np.logspace(np.log10(brange[0]), np.log10(brange[1]), 1000)
             brvals = [1 - sum(self.model.get_br(b[0], mass, 1) for b in branchings) for mass in br_masses]
             ax2.plot(br_masses, brvals, color=color, ls=ls)
-            ax2.text(posx, posy, label, fontsize=fs_label, color=color)
+            ax2.text(posx, posy, label, fontsize=fs_label_br, color=color)
         ax2.set_xscale("log")
         ax2.set_yscale("log")
         ax2.set_xlim(xlims[0], xlims[1])
         ax2.set_ylim(0.01, 1.5)
+        ax2.set_yticks([0.01, 0.1, 1])
+        ax2.yaxis.set_major_formatter(FixedFormatter(["0.01", "0.1", "1"]))
+        ax2.yaxis.set_minor_formatter(NullFormatter())
         ax2.set_xlabel(xlabel)
         ax2.set_ylabel("BR")
         return plt, ax, ax2

@@ -442,7 +442,10 @@ class Model(Utility):
         if configuration == None: configuration=label
         if type(configuration)==str: configuration=[configuration]
         if (len(configuration)>1) and (len(condition)>1): print ("You can only have multiple conditions OR multiple configurations!")
-        production = condition if len(condition)>1 else configuration
+        if len(configuration) > 1 or condition == ["True"]:
+            production = configuration
+        else:
+            production = condition
         self.production[label]= {"type": "direct", "energy": energy, "masses": masses, "scaling": scaling, "coupling_ref": coupling_ref, "production": production, "configuration": configuration, "condition": condition}
 
     def get_production_scaling(self, key, mass, coupling, coupling_ref):

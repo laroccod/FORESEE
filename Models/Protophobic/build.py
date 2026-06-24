@@ -270,10 +270,11 @@ def build_presets(model, *, energy="14", **_):
         ],
         "projections": [],
         "branchings": [
-            ["elec",    "red",        "solid", r"2e",            0.050, 0.58],
-            ["muon",    "orange",     "solid", r"$2\mu$",        0.160, 0.10],
-            ["2pi",     "blue",       "solid", r"$2\pi$",        0.28,  0.05],
-            ["PiGamma", "dodgerblue", "solid", r"$\pi^0\gamma$", 0.55,  0.02],
-            ["3pi",     "cyan",       "solid", r"$\pi^02\pi$",   0.5,   0.05],
+            ["elec"    , "red"        , "solid" , r"$e^+e^-$"            , 0.050, 0.6],
+            ["muon"    , "orange"     , "solid" , r"$\mu^+\mu^-$"        , 0.140, 0.10],
+            ["2pi"     , "blue"       , "solid" , r"$\pi^+\pi^-$"        , 0.29,  0.1],
+            ["PiGamma" , "dodgerblue" , "solid" , r"$\pi^0\gamma$" , 0.55,  0.02],
+            ["3pi"     , "brown"       , "solid" , r"$\pi^0\pi^+\pi^-$"   , 0.45,   0.05],
+            ["KK_c"    , "green"      , "solid" , r"$K^+K^-$"      , 1.05,  0.5],
         ],
     }

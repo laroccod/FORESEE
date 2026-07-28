@@ -1,18 +1,3 @@
-"""Builder for the HNL-e (electron-flavor Heavy Neutral Lepton) model.
-
-Produces a Model configured with HNL production channels (two- and three-body
-meson decays, three-body tau decays) and decay branching fractions / lifetimes
-computed via HeavyNeutralLepton from HNLCalc.py. Equivalent to running the setup
-cells of HNL-e.ipynb up to the foresee.set_model(...) call.
-
-The flavor mix is parameterized: defaults (ve, vmu, vtau) = (1, 0, 0) reproduce
-the electron-flavor benchmark exactly, but the builder accepts arbitrary
-overrides for mixed-flavor studies. HNLCalc.get_br_and_ctau regenerates
-branching-ratio and ctau files at build time, so overriding (ve, vmu, vtau)
-produces a physically consistent Model. Note that this overwrites the cached
-BR/ctau files under Models/HNL/HNL-e/model/.
-"""
-
 import os
 import sys
 
@@ -22,12 +7,11 @@ from src.foresee import Model
 from src.utils.utility import ensure_model_layout
 from src.utils.detectors import default_detectors
 
-# HNLCalc.py lives one directory up from this builder, alongside its sibling
-# flavor directories. The original notebook does the same sys.path setup.
+
 HNL_PKG = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if HNL_PKG not in sys.path:
     sys.path.insert(0, HNL_PKG)
-from HNLCalc import HeavyNeutralLepton  # noqa: E402
+from HNLCalc import HeavyNeutralLepton  
 
 
 def build_model(
@@ -41,7 +25,7 @@ def build_model(
     vtau=0,
 ):
     """
-    Build the HNL-e Model.
+    Build and return the FORESEE model object for this model.
 
     Parameters
     ----------
@@ -53,14 +37,12 @@ def build_model(
         Sampling points per production channel. HNL has many channels; the
         original notebook uses 10. Raise for higher-statistics studies.
     generators_light: [str]
-        Hadron generators for light-meson production. Defaults to
-        ['EPOSLHC', 'SIBYLL', 'QGSJET'], matching the existing notebook.
+        Defaults to ['EPOSLHC', 'SIBYLL', 'QGSJET'].
     generators_heavy: [str]
-        Hadron generators for heavy-meson production. Defaults to
-        ['NLO-P8', 'NLO-P8-Max', 'NLO-P8-Min'], matching the notebook.
+        Defaults to ['NLO-P8', 'NLO-P8-Max', 'NLO-P8-Min'].
     ve, vmu, vtau: float
-        Active-neutrino mixing components. Internally renormalized to unit
-        magnitude by HeavyNeutralLepton.
+        Active-neutrino mixing components. Defaults (1, 0, 0) realize a pure
+        electron-flavor HNL.
 
     Returns
     -------
@@ -106,10 +88,6 @@ def build_model(
             integration=integration,
         )
 
-    # HNLCalc writes ctau / br files relative to CWD ("model/ctau/...",
-    # "model/br/..."). The original notebook runs from the model directory,
-    # so files land under Models/HNL/HNL-e/model/. Mirror that behavior
-    # when called from any other working directory.
     prev_cwd = os.getcwd()
     os.chdir(path)
     try:
@@ -122,120 +100,3 @@ def build_model(
     model.set_br_1d(modes=modes, finalstates=finalstates, filenames=filenames)
 
     return model
-
-
-def build_presets(
-    model,
-    *,
-    energy="13.6",
-    generators_light=None,
-    generators_heavy=None,
-    **_,
-):
-    """
-    Plot/scan defaults for the HNL-e signature notebooks.
-
-    Lifted from HNL-e.ipynb. The bounds overlay is the literal list from the
-    notebook (the electron-flavor benchmark). The detectors list embeds a
-    per-Model channels filter that excludes the invisible (nu, nu, nu) mode.
-    Returns a dict consumed by the signature notebooks; see the
-    Foresee.load_model docstring for the schema.
-
-    Parameters
-    ----------
-    model: Model
-        The configured Model returned by build_model.
-    energy: str
-        Collider energy in TeV.
-    generators_light, generators_heavy: [str]
-        Hadron generators, defaulting to the build_model defaults.
-    """
-    if generators_light is None:
-        generators_light = ["EPOSLHC", "SIBYLL", "QGSJET"]
-    if generators_heavy is None:
-        generators_heavy = ["NLO-P8", "NLO-P8-Max", "NLO-P8-Min"]
-
-    # Visible decay channels: everything except (nu, nu, nu).
-    visible_modes = [m for m in model.br_finalstate.keys() if m != ("nu", "nu", "nu")]
-
-    # Group production channels by parent hadron for the production-rate plot
-    # (mirrors the research notebook). Each filter is anchored to the parent's
-    # position in the channel label so a hadron appearing as a decay daughter
-    # is not miscounted as the parent.
-    keys = list(model.production.keys())
-    production_channels = [
-        {"channels": [k for k in keys if any(s in k for s in ["2body_211","2body_-211"])], "color": "darkred", "label": r"$\pi^\pm$", "generators": generators_light},
-        {"channels": [k for k in keys if any(s in k for s in ["2body_321","2body_-321","3body_pseudo_321","3body_pseudo_-321"])], "color": "orange", "label": r"$K^\pm$", "generators": generators_light},
-        {"channels": [k for k in keys if "3body_pseudo_310" in k], "color": "coral", "label": r"$K_S^0$", "generators": generators_light},
-        {"channels": [k for k in keys if "3body_pseudo_130" in k], "color": "gold", "label": r"$K_L^0$", "generators": generators_light},
-        {"channels": [k for k in keys if any(s in k for s in ["3body_pseudo_421","3body_pseudo_-421","3body_vector_421","3body_vector_-421"])], "color": "deepskyblue", "label": r"$D^0$", "generators": generators_heavy},
-        {"channels": [k for k in keys if any(s in k for s in ["2body_411","2body_-411","3body_pseudo_411","3body_pseudo_-411","3body_vector_411","3body_vector_-411"])], "color": "blue", "label": r"$D^\pm$", "generators": generators_heavy},
-        {"channels": [k for k in keys if any(s in k for s in ["2body_431","2body_-431","3body_pseudo_431","3body_pseudo_-431","3body_vector_431","3body_vector_-431"])], "color": "dodgerblue", "label": r"$D_s^\pm$", "generators": generators_heavy},
-        {"channels": [k for k in keys if any(s in k for s in ["2body_521","2body_-521","3body_pseudo_521","3body_pseudo_-521","3body_vector_521","3body_vector_-521"])], "color": "purple", "label": r"$B^\pm$", "generators": generators_heavy},
-        {"channels": [k for k in keys if any(s in k for s in ["3body_pseudo_511","3body_pseudo_-511","3body_vector_511","3body_vector_-511"])], "color": "magenta", "label": r"$B^0$", "generators": generators_heavy},
-        {"channels": [k for k in keys if any(s in k for s in ["3body_pseudo_531","3body_pseudo_-531","3body_vector_531","3body_vector_-531"])], "color": "violet", "label": r"$B_s^0$", "generators": generators_heavy},
-        {"channels": [k for k in keys if any(s in k for s in ["2body_541","2body_-541","3body_pseudo_541","3body_pseudo_-541","3body_vector_541","3body_vector_-541"])], "color": "mediumpurple", "label": r"$B_c^\pm$", "generators": generators_heavy},
-        {"channels": [k for k in keys if any(s in k for s in ["2body_tau_15","2body_tau_-15","3body_tau_15","3body_tau_-15"])], "color": "green", "label": r"$\tau^\pm$", "generators": generators_heavy},
-    ]
-    production_channels = [p for p in production_channels if p["channels"]]
-
-    detectors = default_detectors("decay", channels=visible_modes)
-
-    return {
-        "benchmark": {"mass": 1.0, "coupling": 1e-3},
-        "grid": {
-            "masses": np.logspace(-1, np.log10(6.0), 50 ),
-            "couplings": np.logspace(-5, 0, 50 ),
-        },
-        "detectors": detectors,
-        "production_channels": production_channels,
-        "production_plot": {
-            "condition": "logth<-3.7 and logp>2",
-            "xlims": [0.1,10],
-            "ylims": [4e-4,4e11],
-            "xlabel": r"Mass [GeV]",
-            "ylabel": r"Production Rate $\sigma/\varepsilon^2$ [pb]",
-            "title": r"$\theta < 0.2$ mrad and $E > 100$ GeV",
-            "legendloc": (1.01,1),
-            "fs_label": 12,
-            "fs_label_br": 9,
-            "ncol": 3,
-            "figsize": (7,6),
-        },
-        "reach_plot": {
-            "title": "HNL's",
-            "xlims": [0.1, 10],
-            "ylims": [1e-5, 1e-2],
-            "xlabel": r"$m_{N}$ (GeV)",
-            "ylabel": r"$\epsilon$",
-            "legendloc": (1,0.2),
-            "linewidths": 2,
-        },
-        "bounds": [
-            ["bounds_100/bounds_cosmo.txt",  "BBN",    0.6,    2*10**(-5)*.5, -50],
-            ["bounds_100/bounds_pienu.txt",  "PIENU",  1.1e-1, 0.000316*0.3,   75],
-            ["bounds_100/bounds_t2k.txt",    "T2K",    4.3e-1, 0.000141,      -90],
-            ["bounds_100/bounds_na62.txt",   "NA62",   0.2,    5e-5,            0],
-            ["bounds_100/bounds_charm.txt",  "CHARM",  2.16,   0.000447,       90],
-            ["bounds_100/bounds_bebc.txt",   "BEBC",   1.1,    0.00026,         0],
-            ["bounds_100/bounds_kenu.txt",   "KENU",   2.5e-1, 3.5e-4,          0],
-            ["bounds_100/bounds_belle.txt",  "BELLE",  1.2,    7e-3,          -15],
-            ["bounds_100/bounds_delphi.txt", "DELPHI", 1.7,    5.3e-3,        -35],
-            ["bounds_100/bounds_atlas.txt",  "Atlas",  3.5,    0.002,         -45],
-            ["bounds_100/bounds_triumf.txt", "Triumf", 1.1e-1, 0.000316,       85],
-        ],
-        "projections": [],
-        "branchings": [
-            [("nu", "nu", "nu"),       "black",      "solid", r"$\nu \nu \nu$",        0.2,  0.06  ],
-            [("nu", "e", "anti_e"),    "red",        "solid", r"$\nu e^+ e^-$",        0.2,  1.3e-2],
-            [("nu", "mu", "anti_mu"),  "orange",     "solid", r"$\nu \mu^+ \mu^-$",    6,    1.6e-2],
-            [("nu", "pi0"),            "blue",       "solid", r"$\nu \pi^0$",          0.2,  0.50  ],
-            [("e", "anti_mu", "nu"),   "purple",     "solid", r"$\nu e^\pm \mu^\mp$",  6,    0.025 ],
-            [("mu", "anti_e", "nu"),   "purple",     "None",  None,                    5.0,  0.025 ],
-            [("e", "pi+"),             "green",      "solid", r"$e^\mp \pi^\pm$",      0.2,  0.13  ],
-            [("anti_e", "anti_pi+"),   "green",      "None",  None,                    0.2,  0.13  ],
-            [("e", "rho+"),            "brown",      "solid", r"$e^\mp \rho^\pm$",     3.56, 2.5e-2],
-            [("anti_e", "anti_rho+"),  "brown",      "None",  None,                    0.2,  0.13  ],
-            [("nu", "rho0"),           "teal",       "solid", r"$\nu \rho^0$",         0.95, 2e-2  ],
-        ],
-    }

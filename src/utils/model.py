@@ -475,7 +475,7 @@ class Model(Utility):
             else: return (coupling/coupling_ref)**scaling
         if self.production[key]["type"] == "mixing":
             if scaling == "manual":
-                return eval(self.production[key]["mixing"], {"coupling":coupling})**2/eval(self.production[key]["mixing"], {"coupling":coupling_ref})**2
+                return eval(self.production[key]["mixing"], {"self":self, "np":np, "mass":mass, "coupling":coupling})**2/eval(self.production[key]["mixing"], {"self":self, "np":np, "mass":mass, "coupling":coupling_ref})**2
             else: return (coupling/coupling_ref)**scaling
         if self.production[key]["type"] == "direct":
             return (coupling/coupling_ref)**scaling

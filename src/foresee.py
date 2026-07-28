@@ -5,7 +5,7 @@ import random
 import time
 import types
 from .utils.vectors import *
-from .utils.utility import Utility
+from .utils.utility import Utility, compile_condition
 from .utils.model import Model
 from .utils.decay import Decay
 from matplotlib import gridspec
@@ -630,7 +630,7 @@ class Foresee(Utility, Decay):
         model = self.model
         if modes is None: modes = {key: model.production[key]["production"] for key in model.production.keys()}
         nprods = max([len(modes[key]) for key in modes.keys()])
-        for key in modes.keys(): modes[key] += [modes[key][0]] * (nprods - len(modes[key]))
+        modes = {key: list(v) + [v[0]] * (nprods - len(v)) for key, v in modes.items()}
 
         #setup ctau, branching fractions
         ctaus = np.array([model.get_ctau(mass, coupling) for coupling in couplings])
@@ -726,7 +726,7 @@ class Foresee(Utility, Decay):
         model = self.model
         if modes is None: modes = {key: model.production[key]["production"] for key in model.production.keys()}
         nprods = max([len(modes[key]) for key in modes.keys()])
-        for key in modes.keys(): modes[key] += [modes[key][0]] * (nprods - len(modes[key]))
+        modes = {key: list(v) + [v[0]] * (nprods - len(v)) for key, v in modes.items()}
 
         # setup output arrays
         output_p, output_w = [LorentzVector(0,0,0,0)], [np.array([[0 for _ in range(nprods)] for _ in couplings])]
@@ -816,7 +816,7 @@ class Foresee(Utility, Decay):
         model = self.model
         if modes is None: modes = {key: model.production[key]["production"] for key in model.production.keys()}
         nprods = max([len(modes[key]) for key in modes.keys()])
-        for key in modes.keys(): modes[key] += [modes[key][0]] * (nprods - len(modes[key]))
+        modes = {key: list(v) + [v[0]] * (nprods - len(v)) for key, v in modes.items()}
 
         # setup output arrays
         output_p, output_w = [LorentzVector(0,0,0,0)], [np.array([[0 for _ in range(nprods)] for _ in couplings])]
@@ -1076,7 +1076,7 @@ class Foresee(Utility, Decay):
         model = self.model
         if modes is None: modes = {key: model.production[key]["production"] for key in model.production.keys()}
         nprods = max([len(modes[key]) for key in modes.keys()])
-        for key in modes.keys(): modes[key] += [modes[key][0]] * (nprods - len(modes[key]))
+        modes = {key: list(v) + [v[0]] * (nprods - len(v)) for key, v in modes.items()}
         if weightnames is None: weightnames = modes[list(modes.keys())[0]]
 
         # get weighted sample of LLPs
@@ -1284,7 +1284,7 @@ class Foresee(Utility, Decay):
             else: level_up, level_down = None, None
             masses,couplings,nsignals=np.load(self.model.modelpath+"model/results/"+filename, allow_pickle=True, encoding='latin1')
             m, c = np.meshgrid(masses, couplings)
-            n = np.log10(np.array(nsignals).T+1e-20)
+            n = np.log10(np.stack(nsignals).T+1e-20)
             ax.contour (m,c,n, levels=[np.log10(level)]       ,colors=color,zorder=zorder, linestyles=ls, linewidths=linewidths)
             if level_up is not None: ax.contourf(m,c,n, levels=[np.log10(level_up),np.log10(level_down)],colors=color,zorder=zorder, alpha=alpha)
             ax.plot([0,0],[0,0], color=color,zorder=-1000, linestyle=ls, label=label)
@@ -1317,6 +1317,8 @@ class Foresee(Utility, Decay):
         ax.set_ylim(ylims[0],ylims[1])
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
+        ax.xaxis.set_minor_formatter(NullFormatter())
+        ax.yaxis.set_minor_formatter(NullFormatter())
         ax.legend(loc="upper right", bbox_to_anchor=legendloc, frameon=False, labelspacing=0, handlelength=1.5)
 
         if branchings is not None:
@@ -1363,7 +1365,9 @@ class Foresee(Utility, Decay):
             {"channels": "111",
              "color": "red",
              "label": r"$\\pi^0 \to \\gamma A'$",
-             "generators": ["EPOSLHC"]},
+             "generators": ["EPOSLHC"]}.
+            An optional "normalization_factor" key rescales that channel alone
+            (default 1), on top of the global normalization_factor.
         condition: str
             Add event weight to total if this condition is satisfied
         energy: str
@@ -1415,6 +1419,8 @@ class Foresee(Utility, Decay):
 
         # loop over production channels
         dirname = self.model.modelpath+"model/LLP_spectra/"
+        # compile the grid-point selection once; evaluated vectorized below
+        cond_code = compile_condition(condition)
         for production in productions:
 
             # get arguments
@@ -1429,6 +1435,8 @@ class Foresee(Utility, Decay):
             else: label=None
             if 'generators' in production.keys(): generators = production['generators']
             else: generators=None
+            if 'normalization_factor' in production.keys(): prod_norm = production['normalization_factor']
+            else: prod_norm = 1
 
             # fix format
             if isinstance(generators, (list, tuple, np.ndarray))== False: channels=[generators]
@@ -1447,20 +1455,25 @@ class Foresee(Utility, Decay):
                        
                         filename = dirname+energy_stem(energy)+"_"+"m_"+str(mass)+".txt.gz"
                         key_llp  = f"{channel}({generator})"
-                       
+
                         try:
                             data = self.read_list_angle_momenta_weights(filename, keys = [key_llp])
-                         
-                            for i in range(len(data[0])):
-                                logth, logp, w = data[0][i],data[1][i],data[2][i][0]
-                                if eval(condition): total+=w
                         except:
                             continue
+                        if len(data[0]) == 0: continue
+
+                        logth, logp = np.asarray(data[0]), np.asarray(data[1])
+                        w = np.asarray(data[2]).T[0]
+                        mask = eval(cond_code, {"np": np}, {"logth": logth, "logp": logp, "w": w})
+                        if np.ndim(mask) == 0:
+                            if mask: total += float(w.sum())
+                        else:
+                            total += float(w[mask].sum())
                     if igen==0: xvals.append(mass)
                     yvals[igen].append(total+1e-10)
 
             # add to plot
-            yvals = np.array(yvals)*float(normalization_factor)
+            yvals = np.array(yvals)*float(normalization_factor)*float(prod_norm)
             yvals_min = [min(row) for row in yvals.T]
             yvals_max = [max(row) for row in yvals.T]
             ax.plot(xvals, yvals[0], color=color, label=label, ls=ls)
@@ -1473,6 +1486,8 @@ class Foresee(Utility, Decay):
         ax.set_xlim(xlims[0],xlims[1])
         ax.set_ylim(ylims[0],ylims[1])
         ax.set_ylabel(ylabel)
+        ax.xaxis.set_minor_formatter(NullFormatter())
+        ax.yaxis.set_minor_formatter(NullFormatter())
         if dolegend: ax.legend(loc="upper right", bbox_to_anchor=legendloc, frameon=False, labelspacing=0, fontsize=fs_label, ncol=ncol)
 
         # No branching sub-panel: the production plot owns the mass axis label.
@@ -1502,6 +1517,7 @@ class Foresee(Utility, Decay):
         ax2.set_ylim(0.01, 1.5)
         ax2.set_yticks([0.01, 0.1, 1])
         ax2.yaxis.set_major_formatter(FixedFormatter(["0.01", "0.1", "1"]))
+        ax2.xaxis.set_minor_formatter(NullFormatter())
         ax2.yaxis.set_minor_formatter(NullFormatter())
         ax2.set_xlabel(xlabel)
         ax2.set_ylabel("BR")

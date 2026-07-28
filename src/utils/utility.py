@@ -2,7 +2,7 @@ from particle import Particle
 import matplotlib
 from matplotlib import pyplot as plt
 import numpy as np
-import math, gzip, os, sys
+import math, gzip, os, sys, ast, json
 from .vectors import *
 
 # shared mass grid (0.001-10 GeV) for the precomputed bremsstrahlung spectra
@@ -29,10 +29,90 @@ BREM_MASSES = [
     9.2, 9.4, 9.6, 9.8, 10.0,
 ]
 
+
+SPECTRA_FILE_CACHE = {}
+
+
+def read_spectrum_file_columns(filename):
+    """
+    Parse a (gzipped) spectrum file once and cache its columns
+
+    The file holds a logth/logp grid plus one weight column per key; this reads
+    every column once and memoizes the result so repeated key requests (one per
+    production channel, per mass) reuse the same parse. NULL entries become nan.
+
+    Parameters
+    ----------
+    filename: str
+        Path to the file (gzip-compressed if it ends with .gz)
+
+    Returns
+    -------
+        (th, p, cols): the logth and logp arrays and a dict mapping each weight
+        column name to its float array
+    """
+    key = (filename, os.path.getmtime(filename))
+    cached = SPECTRA_FILE_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    # one C-parsed read of the whole file: whitespace-separated, NULL -> nan
+    import pandas as pd
+    # round_trip float parsing matches Python's float() exactly (the fast C
+    # parser can differ by 1 ULP), so the cached grid is bit-identical
+    frame = pd.read_csv(filename, sep=r"\s+", na_values="NULL",
+                        compression="infer", float_precision="round_trip")
+    # headers were written unquoted, but older files quote key names
+    frame.columns = [str(c).strip('"') for c in frame.columns]
+
+    th = frame["logth"].to_numpy(dtype=float)
+    p = frame["logp"].to_numpy(dtype=float)
+    cols = {name: frame[name].to_numpy(dtype=float)
+            for name in frame.columns if name not in ("logth", "logp")}
+
+    SPECTRA_FILE_CACHE[key] = (th, p, cols)
+    return th, p, cols
+
+
+def compile_condition(condition):
+    """
+    Compile a grid-point selection condition into a vectorized code object
+
+    Boolean and/or are rewritten to bitwise &/| so the expression evaluates over
+    numpy arrays (logth, logp, w) in one shot instead of once per grid point. The
+    AST is transformed in place, so operator grouping is preserved exactly.
+
+    Parameters
+    ----------
+    condition: str
+        Expression over logth, logp, w (e.g. "logth<-3.7 and logp>2")
+
+    Returns
+    -------
+        A compiled code object evaluating to a boolean array (or scalar bool)
+    """
+    tree = ast.parse(condition, mode="eval")
+
+    class BoolToBitwise(ast.NodeTransformer):
+        def visit_BoolOp(self, node):
+            self.generic_visit(node)
+            op = ast.BitAnd() if isinstance(node.op, ast.And) else ast.BitOr()
+            expr = node.values[0]
+            for value in node.values[1:]:
+                expr = ast.BinOp(left=expr, op=op, right=value)
+            return expr
+
+    tree = ast.fix_missing_locations(BoolToBitwise().visit(tree))
+    return compile(tree, "<condition>", "eval")
+
+
 class Utility():
 
     def __init__(self, rng=None):
         self.rng = rng
+        # numpy generator for vectorized draws, seeded from self.rng so every
+        # random number still comes from the same stream
+        self.nprng = np.random.default_rng(None if rng is None else rng.getrandbits(128))
 
     ###############################
     #  Hadron Masses, lifetimes etc
@@ -185,52 +265,23 @@ class Utility():
         KeyError
             If any requested key is not in the file header and skip_missing is False.
         """
-        open_func = gzip.open if filename.endswith(".gz") else open
+        
+        th, p, cols = read_spectrum_file_columns(filename)
 
-        with open_func(filename, "rb") as f:
-            # --- parse header ---
-            raw_header = f.readline().decode().strip()
-            # Strip quotes that were added around key names during writing
-            header_cols = [col.strip('"') for col in raw_header.split()]
+        missing = [k for k in keys if k not in cols]
+        if missing and not skip_missing:
+            raise KeyError(f"Requested key(s) not found in file header: {missing}")
+        if missing:
+            self.warn_missing_columns(filename, missing)
 
-            idx_th = header_cols.index("logth")
-            idx_p  = header_cols.index("logp")
+        # one row per grid point; missing keys (skip_missing) fill a zero column
+        list_w = np.empty((len(keys), len(th)))
+        for i, k in enumerate(keys):
+            list_w[i] = cols[k] if k in cols else 0.0
 
-            missing = [k for k in keys if k not in header_cols]
-            if missing and not skip_missing:
-                raise KeyError(f"Requested key(s) not found in file header: {missing}")
-            if missing:
-                self.warn_missing_columns(filename, missing)
-
-            # None marks a missing column -> emitted as zeros below.
-            idx_keys = [header_cols.index(k) if k in header_cols else None for k in keys]
-
-            # --- read data rows ---
-            list_th, list_p, list_w = [], [], [[] for _ in keys]
-
-            for line in f:
-                line = line.decode().strip()
-                if not line:
-                    continue
-                parts = line.split()
-                list_th.append(float(parts[idx_th]))
-                list_p.append(float(parts[idx_p]))
-
-                for out_idx, col_idx in enumerate(idx_keys):
-                    # missing key (skip_missing): fill a zero column
-                    if col_idx is None:
-                        list_w[out_idx].append(0.0)
-                        continue
-                    w = parts[col_idx]
-                    if w != 'NULL': list_w[out_idx].append(float(w))
-                    else: list_w[out_idx].append(np.nan)
-                        
-        mask = ~np.isnan(np.array(list_w)).any(axis=0)
-        list_th = [list_th[i] for i in range(len(list_th)) if mask[i]]
-        list_p = [list_p[i] for i in range(len(list_p)) if mask[i]]
-        list_w = np.array(list_w)[:, mask]
-    
-        return list_th, list_p, np.array(list_w).T
+        # drop grid points where any requested key is nan (NULL in the file)
+        mask = ~np.isnan(list_w).any(axis=0)
+        return th[mask].tolist(), p[mask].tolist(), list_w[:, mask].T
 
     def read_list_4momenta_weights(self,filename, keys, mass,nsample=1,preselectioncut=None, nocuts=False, skip_missing=False):
         """
@@ -264,52 +315,56 @@ class Utility():
         #read file
         list_logth, list_logp, list_xs = self.read_list_angle_momenta_weights(filename=filename, keys=keys, skip_missing=skip_missing)
 
-        phis,ths,pts,ens,weights = [],[],[],[],[]
-        for logth,logp,xs in zip(list_logth,list_logp, list_xs):
-            
-            if nocuts==False and max(xs) < 10.**-6: continue
-            p  = 10.**logp
-            th = 10.**logth
-            
-            if nocuts==False and preselectioncut is not None:
-                if not eval(preselectioncut): continue
+        logth = np.asarray(list_logth, dtype=float)
+        logp  = np.asarray(list_logp, dtype=float)
+        xs    = np.asarray(list_xs, dtype=float)            # (npoints, nkeys)
+        p_pts  = 10.0**logp
+        th_pts = 10.0**logth
 
-            #Sample random variables
-            phis.append(np.array(list(map(self.rng.uniform,[-math.pi]*nsample,[math.pi]*nsample))))
-            fthrand = np.array(list(map(self.rng.uniform,[-0.025]*nsample,[0.025]*nsample)))
-            fprand  = np.array(list(map(self.rng.uniform,[-0.025]*nsample,[0.025]*nsample)))
-            fth = np.power(10,fthrand)
-            fp  = np.power(10,fprand )
-            
-            #Angles, 3-momentum magnitudes and transverse momenta for constructing 4-momenta
-            th_smeared = np.multiply(th,fth)
-            p_smeared  = np.multiply(p, fp )
-            ths.append(th_smeared)
-            pts.append(np.multiply(p_smeared, np.sin(th_smeared)))
-            ens.append(np.sqrt(np.add(p_smeared**2,mass**2)))
-            
-            weights.append( np.ones((nsample,1)) * np.array(xs)/float(nsample) )
-                
+        if nocuts:
+            keep = np.ones(len(logth), dtype=bool)
+        else:
+            keep = xs.max(axis=1) >= 10.**-6
+            if preselectioncut is not None:
+                for i in np.nonzero(keep)[0]:
+                    p, th = p_pts[i], th_pts[i]
+                    if not eval(preselectioncut): keep[i] = False
+
         # no surviving particles: return empty so the caller drops this channel
-        if len(phis) == 0:
+        if not keep.any():
             return [], np.array([])
 
-        #Flatten
-        phis = np.concatenate(phis)
-        ths  = np.concatenate(ths)
-        ens  = np.concatenate(ens)
-        pts  = np.concatenate(pts)
+        p_keep  = p_pts[keep]
+        th_keep = th_pts[keep]
+        xs_keep = xs[keep]                                  # (m, nkeys)
+        m = len(p_keep)
 
-        #Construct particle 4-momentum list/array
-        particles = LorentzArray({"pt": pts, "theta": ths, "phi": phis, "energy": ens})
+        # sample all (point, nsample) smearings at once from self.nprng, the
+        # numpy generator seeded off self.rng
+        phis = self.nprng.uniform(-math.pi, math.pi, size=(m, nsample))
+        fth  = 10.0**self.nprng.uniform(-0.025, 0.025, size=(m, nsample))
+        fp   = 10.0**self.nprng.uniform(-0.025, 0.025, size=(m, nsample))
 
-        return particles, np.concatenate(weights)
+        # angles, 3-momentum magnitudes and transverse momenta for the 4-momenta
+        th_smeared = th_keep[:, None] * fth
+        p_smeared  = p_keep[:, None] * fp
+        pts = p_smeared * np.sin(th_smeared)
+        ens = np.sqrt(p_smeared**2 + mass**2)
+
+        # one weight row per point, repeated over nsample (point-major order)
+        weights = np.repeat(xs_keep / float(nsample), nsample, axis=0)
+
+        # flatten point-major / sample-minor, matching the original concatenation
+        particles = LorentzArray({"pt": pts.ravel(), "theta": th_smeared.ravel(),
+                                  "phi": phis.ravel(), "energy": ens.ravel()})
+
+        return particles, weights
 
     def write_list_angle_momenta_weights(self, list_th, list_p, list_w, keys, filename="output.txt.gz"):
         """
         Write a flattened grid of (logth, logp) points and associated weights to a
         gzipped text file.
-    
+
         Parameters
         ----------
         list_th : array-like of float
@@ -386,8 +441,17 @@ class Utility():
         log_t_centers = np.linspace(tmin + 0.5 * dt, tmax - 0.5 * dt, num=tnum)
         log_p_centers = np.linspace(pmin + 0.5 * dp, pmax - 0.5 * dp, num=pnum)
 
-        # fill histogram
-        w, _, _ = np.histogram2d(tx, px, weights=weights, bins=(t_edges, p_edges))
+
+        tx, px = np.asarray(tx), np.asarray(px)
+        ok = ((tx >= t_edges[0]) & (tx <= t_edges[-1])
+              & (px >= p_edges[0]) & (px <= p_edges[-1]))
+        with np.errstate(divide="ignore", invalid="ignore"):
+            it = np.floor((np.log10(tx[ok]) - tmin) / dt).astype(np.intp)
+            ip = np.floor((np.log10(px[ok]) - pmin) / dp).astype(np.intp)
+        np.clip(it, 0, tnum - 1, out=it)
+        np.clip(ip, 0, pnum - 1, out=ip)
+        w = np.bincount(it * pnum + ip, weights=np.asarray(weights)[ok],
+                        minlength=tnum * pnum)
 
         # build grid of centers
         T, P = np.meshgrid(log_t_centers, log_p_centers, indexing="ij")
@@ -395,7 +459,7 @@ class Utility():
         # convert to desired output
         list_t = T.ravel().tolist()
         list_p = P.ravel().tolist()
-        list_w = w.ravel().tolist()
+        list_w = w.tolist()
 
         return list_t, list_p, list_w
 
@@ -546,6 +610,73 @@ def ensure_model_layout(model_dir, *, link_direct=False, direct_name=None):
         )
 
 
+def production_thresholds(model, mass_range=None, window=0.03, n=3):
+    """
+    Mass points clustered around each production channel's kinematic endpoint
+
+    Endpoints come from the decay and mixing channels (direct channels are
+    smooth and skipped); near-degenerate ones are merged before n points are
+    spread by +/-window around each. 
+
+    Parameters
+    ----------
+    model: Model
+        Configured Model whose production channels define the endpoints.
+    mass_range: (float, float)
+        Keep only endpoints inside this (low, high) GeV window. Defaults to no
+        filtering.
+    window: float
+        Half-width of the cluster, and the merge tolerance, as a fraction of
+        the endpoint mass.
+    n: int
+        Points generated per merged endpoint.
+
+    Returns
+    -------
+    Sorted list of clustered mass points, rounded to 5 decimals.
+    """
+    endpoints = []
+    for channel in model.production.values():
+        kind = channel["type"]
+        if kind == "direct":
+            continue
+        if kind == "mixing":
+            endpoint = model.masses(channel["pid0"]) + 1e-12
+        else:
+            endpoint = model.masses(channel["pid0"]) - model.masses(channel["pid1"])
+            if channel.get("pid2") is not None:
+                endpoint -= model.masses(channel["pid2"])
+            # A symmetric LLP pair (exotic slot pid="0") shares the available
+            # energy, so the per-LLP endpoint is half. chain_decay routes
+            # through a heavier mediator and keeps the full energy.
+            pair = channel.get("integration") != "chain_decay" and "0" in (
+                str(channel["pid1"]), str(channel.get("pid2")),
+            )
+            if pair:
+                endpoint /= 2
+        if endpoint <= 0:
+            continue
+        if mass_range is not None and not (mass_range[0] <= endpoint <= mass_range[1]):
+            continue
+        endpoints.append(endpoint)
+
+    # Merge endpoints within window of each other into their group mean so
+    # near-degenerate channels share a single cluster instead of stacking.
+    merged = []
+    for endpoint in sorted(endpoints):
+        if merged and endpoint <= merged[-1][-1] * (1 + window):
+            merged[-1].append(endpoint)
+        else:
+            merged.append([endpoint])
+    centers = [sum(group) / len(group) for group in merged]
+
+    points = []
+    for center in centers:
+        for frac in np.linspace(-window, window, n):
+            points.append(float(round(center * (1 + frac), 5)))
+    return sorted(set(points))
+
+
 def create_symlink(target, linkname):
     """
     Symlink linkname -> target, unless linkname already exists
@@ -566,3 +697,55 @@ def create_symlink(target, linkname):
                 f"Original error: {e}"
             ) from e
         raise
+
+
+def get_notebook_kwargs(notebook_path, function):
+    """
+    Keyword arguments of the first call to function in a research notebook.
+
+    Parameters
+    notebook_path: str path to the .ipynb
+    function: str method name to find, e.g. "plot_production" or "plot_reach"
+
+    Returns
+    Dict of each kwarg to its value. A kwarg that references a variable is
+    resolved to that variable's definition; the value is evaluated when it is a
+    constant literal, otherwise its raw source text is returned.
+    """
+    cells = json.load(open(notebook_path, encoding="utf-8"))["cells"]
+    defs = {}  # variable name -> (value node, its source) up to the call
+
+    for cell in cells:
+        if cell["cell_type"] != "code":
+            continue
+        # drop IPython magics so the cell parses as plain Python
+        src = "\n".join(ln for ln in "".join(cell["source"]).splitlines()
+                        if not ln.lstrip().startswith(("%", "!")))
+        for node in ast.walk(ast.parse(src)):
+            if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                    and isinstance(node.targets[0], ast.Name)):
+                defs[node.targets[0].id] = (node.value, src)
+            if isinstance(node, ast.Call) and getattr(node.func, "attr", None) == function:
+                return {kw.arg: literal(kw.value, src, defs) for kw in node.keywords}
+    return {}
+
+
+def literal(node, src, defs=None):
+    """
+    Value of an AST node, resolving a variable reference to its definition.
+
+    Parameters
+    node: ast.AST node to evaluate
+    src: str source the node was parsed from
+    defs: dict mapping variable name to its (value node, source), or None
+
+    Returns
+    The evaluated value if the node (or the variable it names) is a constant
+    literal, otherwise its raw source text.
+    """
+    if defs and isinstance(node, ast.Name) and node.id in defs:
+        node, src = defs[node.id]
+    try:
+        return ast.literal_eval(node)
+    except (ValueError, SyntaxError, TypeError):
+        return ast.get_source_segment(src, node)

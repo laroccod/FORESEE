@@ -12,6 +12,10 @@ from src.utils.utility import BREM_MASSES
 # (log theta, log p) lattice (matches files/direct/iDM/<E>.txt.gz).
 IDM_PRANGE = [[-7.5, 0.2, 154], [-2, 5, 140]]
 
+# model-dir paths are resolved against this file, not the cwd, so the builder
+# works from any working directory (Examples/, tests, batch runs)
+IDM_DIR = os.path.dirname(os.path.abspath(__file__))
+
 
 class InelasticDarkMatter(Utility, Decay):
 
@@ -20,11 +24,13 @@ class InelasticDarkMatter(Utility, Decay):
     ###############################
 
     def __init__(self, alphaD=1, delta=0, r=0):
-        
+
         self.alphaD = alphaD
         self.delta = delta
         self.r = r
         self.rng = random.Random()
+        Utility.__init__(self, self.rng)
+        Decay.__init__(self, self.rng)
         
         self.masses_brem_aprime = BREM_MASSES
         
@@ -84,10 +90,7 @@ class InelasticDarkMatter(Utility, Decay):
         lmbda = lambda a,b,c: (a-b-c)**2 - 4*b*c
  
         # obtain BR of A' ->e+e-
-        # Library layout: direct_darkphoton/ lives directly under Models/iDM/,
-        # so this path is relative to the model dir (was "../direct_darkphoton"
-        # in foresee-working, where the notebook sat one level deeper in iDM_BP1/).
-        filename='model/br_darkphoton/e_e.txt'
+        filename = os.path.join(IDM_DIR, "model", "br_darkphoton", "e_e.txt")
         aprime_ee = np.loadtxt(filename).T
         br_interp = interp1d(aprime_ee[0], aprime_ee[1])
         Be = br_interp(map)
@@ -115,14 +118,14 @@ class InelasticDarkMatter(Utility, Decay):
     def obtain_ctau_br(self, masses=np.logspace(-2,2, 601), epsilon=1):
     
         # set path, make sure it exists
-        path = "model/"
+        path = os.path.join(IDM_DIR, "model")
         os.makedirs(path,exist_ok = True)
-            
+
         #calculate ctaus
         data = np.array([[mass, self.get_ctau(mass, epsilon)] for mass in masses])
         data = data[~np.isnan(data[:, 1])]
         # save
-        filepath = path + "ctau.txt"
+        filepath = os.path.join(path, "ctau.txt")
         np.savetxt(filepath, data, delimiter=' ')
 
     def get_X2_spectrum(self, momenta, weights, m0, m1, m2, nsample=10, prange=IDM_PRANGE):

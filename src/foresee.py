@@ -649,11 +649,11 @@ class Foresee(Utility, Decay):
             keys_llp  = [f"{key}({production})" for production in modes[key]]
 
             # try Load Flux file
-            try:
-                momenta, weights =self.read_list_4momenta_weights(filename=filename, keys=keys_llp, mass=mass, nsample=nsample, preselectioncut=preselectioncuts)
+             try:
+                momenta, weights =self.read_list_4momenta_weights(filename=filename, keys=keys_llp, mass=mass, nsample=nsample, preselectioncut=preselectioncuts, skip_missing=True)
             except:
                 continue
-                
+
             # get coupling factors
             cfacs = np.array([model.get_production_scaling(key, mass, coupling, coup_ref) for coupling in couplings])
 
@@ -743,9 +743,10 @@ class Foresee(Utility, Decay):
             keys_llp  = [f"{key}({production})" for production in modes[key]]
 
             # try Load Flux file
+            # skip_missing: generator columns absent from the cached spectrum contribute zero instead of dropping the channel
             try:
                 momenta, weights=self.read_list_4momenta_weights(
-                    filename=filename, keys=keys_llp, mass=mass, nsample=nsample, preselectioncut=preselectioncuts)
+                    filename=filename, keys=keys_llp, mass=mass, nsample=nsample, preselectioncut=preselectioncuts, skip_missing=True)
             except:
                 continue
                 
@@ -829,9 +830,10 @@ class Foresee(Utility, Decay):
             filename = dirname+energy_stem(energy)+"_"+"m_"+str(mass)+".txt.gz"
             keys_llp  = [f"{key}({production})" for production in modes[key]]
             # try Load Flux file
+            # skip_missing: generator columns absent from the cached spectrum contribute zero instead of dropping the channel
             try:
                 momenta, weights=self.read_list_4momenta_weights(
-                    filename=filename, keys=keys_llp, mass=mass, nsample=nsample, preselectioncut=preselectioncuts)
+                    filename=filename, keys=keys_llp, mass=mass, nsample=nsample, preselectioncut=preselectioncuts, skip_missing=True)
             except:
                 continue
                 
@@ -1122,7 +1124,7 @@ class Foresee(Utility, Decay):
         dirname = self.model.modelpath+"model/events/"
         if not os.path.exists(dirname): os.mkdir(dirname)
         if filename==None: filename = dirname+str(mass)+"_"+str(coupling)+"."+filetype
-        else: filename = self.model.modelpath + filename
+        elif not os.path.isabs(filename): filename = self.model.modelpath + filename
 
         # write to file file
         if filetype=="hepmc": self.write_hepmc_file(filename=filename, data=unweighted_data, weightnames=weightnames)
@@ -1188,8 +1190,9 @@ class Foresee(Utility, Decay):
         Parameters
         ----------
         setups: [[str,str,str,str,float,int]]
-            List of arrays, with each array containing the filename in model/results directory,
-            label, color, linestyle, opacity alpha for filled contours and required number of events
+            List of arrays, with each array containing the filename in model/results directory
+            (an absolute path is used as given), label, color, linestyle, opacity alpha for
+            filled contours and required number of events
         bounds: [[str,str,float,float,float]]
             List of arrays specifying the existing bounds to plot. Drawn in dark gray.
             Each array contains:
@@ -1282,7 +1285,8 @@ class Foresee(Utility, Decay):
             filename, label, color, ls, alpha, level = setup
             if type(level)==list: level_up, level, level_down = level
             else: level_up, level_down = None, None
-            masses,couplings,nsignals=np.load(self.model.modelpath+"model/results/"+filename, allow_pickle=True, encoding='latin1')
+            path = filename if os.path.isabs(filename) else self.model.modelpath+"model/results/"+filename
+            masses,couplings,nsignals=np.load(path, allow_pickle=True, encoding='latin1')
             m, c = np.meshgrid(masses, couplings)
             n = np.log10(np.stack(nsignals).T+1e-20)
             ax.contour (m,c,n, levels=[np.log10(level)]       ,colors=color,zorder=zorder, linestyles=ls, linewidths=linewidths)

@@ -3,7 +3,6 @@ import sys
 
 from src.foresee import Model
 from src.utils.utility import ensure_model_layout
-from src.utils.detectors import default_detectors
 
 IDM_PKG = os.path.dirname(os.path.abspath(__file__))
 if IDM_PKG not in sys.path:

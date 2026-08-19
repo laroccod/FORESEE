@@ -2,7 +2,7 @@
 Named detector geometries for FORESEE forward experiments
 
 A registry so models reference a forward detector by label instead of repeating
-the same geometry dict in every build_presets. Each entry holds only the
+the same geometry dict in every builder. Each entry holds only the
 geometry consumed by Foresee.set_detector (distance, selection, length,
 luminosity, and for scattering numberdensity/ermin/ermax); model-specific fields
 are passed as overrides to detector().

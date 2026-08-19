@@ -211,26 +211,28 @@ class Utility():
     #  Reading/Plotting Particle Tables
     ###############################
 
-    def warn_missing_columns(self, filename, missing):
+    def warn_missing_columns(self, missing):
         """
-        Warn once per (file, missing-keys) about skipped columns
+        Warn once per missing-column set about skipped columns
+
+        A channel closed at most scan masses is absent from most spectrum
+        files, so the warning is keyed on the column set alone: one line per
+        channel per session, not one per file.
 
         Parameters
         ----------
-        filename : str
-            File whose header was missing columns
         missing : [str]
             The absent column keys, zero-filled instead of read
         """
         cache = getattr(self, "warned_missing", None)
         if cache is None:
             cache = self.warned_missing = set()
-        tag = (filename, tuple(sorted(missing)))
+        tag = tuple(sorted(missing))
         if tag in cache:
             return
         cache.add(tag)
-        print(f"[skip] {os.path.basename(filename)}: no column for {missing} "
-              f"- contributing zero at this energy")
+        print(f"[skip] no column for {missing} - contributing zero "
+              f"(warned once per column set)")
 
     def read_list_angle_momenta_weights(self,filename, keys, skip_missing=False):
         """
@@ -272,7 +274,7 @@ class Utility():
         if missing and not skip_missing:
             raise KeyError(f"Requested key(s) not found in file header: {missing}")
         if missing:
-            self.warn_missing_columns(filename, missing)
+            self.warn_missing_columns(missing)
 
         # one row per grid point; missing keys (skip_missing) fill a zero column
         list_w = np.empty((len(keys), len(th)))

@@ -2,7 +2,6 @@ import numpy as np
 
 from src.foresee import Model
 from src.utils.utility import ensure_model_layout
-from src.utils.detectors import default_detectors
 
 
 def br_2body(coef):

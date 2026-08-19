@@ -2,7 +2,6 @@ import numpy as np
 
 from src.foresee import Model
 from src.utils.utility import ensure_model_layout, BREM_MASSES
-from src.utils.detectors import default_detectors
 import src.foresee as foresee_module
 
 
@@ -12,7 +11,7 @@ def BW(self, mass, pid):
 
 def build_model(
     path,
-    energy="13.6",
+    energy="14",
     nsample_2body=100,
     generators_light=None,
     brem_configurations=None,
@@ -25,7 +24,7 @@ def build_model(
     path: str
         Model directory (Models/U(1)B/). Supplied by Foresee.load_model.
     energy: str
-        Collider energy in TeV. Defaults to "13.6".
+        Collider energy in TeV. Defaults to "14".
     nsample_2body: int
         Sampling points per production channel. Defaults to 100.
     generators_light: [str]

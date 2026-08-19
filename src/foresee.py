@@ -72,8 +72,7 @@ class Foresee(Utility, Decay):
         Load a predefined model by name and return a configured Model
 
         Locates Models/<name>/build.py and calls its build_model(path, **params).
-        If the builder also defines build_presets(model, **params), the resulting
-        dict is attached as model.presets for the signature notebooks to use.
+        
 
         Parameters
         ----------
@@ -82,7 +81,7 @@ class Foresee(Utility, Decay):
             "HNL/HNL-e") or a bare model name resolved to a unique nested
             directory ("HNL-e" -> Models/HNL/HNL-e/)
         **params
-            Forwarded to the model's build_model (and build_presets, if present).
+            Forwarded to the model's build_model .
             See Models/<name>/build.py for the supported keys
 
         Returns
@@ -129,8 +128,7 @@ class Foresee(Utility, Decay):
                 f"{build_path} must define a build_model(path, **params) function."
             )
         model = module.build_model(path=model_dir + os.sep, **params)
-        if hasattr(module, "build_presets"):
-            model.presets = module.build_presets(model, **params)
+        
         return model
 
     ###############################
@@ -649,7 +647,7 @@ class Foresee(Utility, Decay):
             keys_llp  = [f"{key}({production})" for production in modes[key]]
 
             # try Load Flux file
-             try:
+            try:
                 momenta, weights =self.read_list_4momenta_weights(filename=filename, keys=keys_llp, mass=mass, nsample=nsample, preselectioncut=preselectioncuts, skip_missing=True)
             except:
                 continue

@@ -2,9 +2,7 @@ import numpy as np
 
 from src.foresee import Model
 from src.utils.utility import ensure_model_layout
-from src.utils.detectors import default_detectors
 from src.utils.utility import BREM_MASSES
-import matplotlib.colors as mcolors
 
 
 def build_model(

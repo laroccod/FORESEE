@@ -3,7 +3,6 @@ import numpy as np
 import src.foresee as foresee_module
 from src.foresee import Model
 from src.utils.utility import ensure_model_layout
-from src.utils.detectors import default_detectors
 
 
 def th_aP(self, mass, coupling, pid0):

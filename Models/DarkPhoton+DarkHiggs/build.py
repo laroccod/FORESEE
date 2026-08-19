@@ -2,7 +2,6 @@ import numpy as np
 
 from src.foresee import Model
 from src.utils.utility import ensure_model_layout
-from src.utils.detectors import default_detectors
 from src.utils.utility import BREM_MASSES
 
 
@@ -133,6 +132,17 @@ def build_model(
         configuration=brem_configurations,
         coupling_ref=1,
         masses=BREM_MASSES,
+    )
+
+    masses_dy = [1.5849, 1.7783, 1.9953, 2.2387, 2.5119, 2.8184, 3.1623, 3.9811,
+                 5.0119, 6.3096, 7.9433, 10.0, 12.0, 15.0, 17.0, 20.0, 25.0, 30.0,
+                 50.0, 70.0, 100.0]
+    model.add_production_direct(
+        label="DY",
+        energy=energy,
+        coupling_ref=1,
+        masses=masses_dy,
+        condition="True",
     )
 
     DARKHIGGS_CHANNELS = [

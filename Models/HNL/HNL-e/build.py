@@ -5,7 +5,6 @@ import numpy as np
 
 from src.foresee import Model
 from src.utils.utility import ensure_model_layout
-from src.utils.detectors import default_detectors
 
 
 HNL_PKG = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -16,7 +15,7 @@ from HNLCalc import HeavyNeutralLepton
 
 def build_model(
     path,
-    energy="13.6",
+    energy="14",
     nsample_2body=10,    nsample_3body=10,
     generators_light=None,
     generators_heavy=None,

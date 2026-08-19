@@ -2,7 +2,6 @@ import numpy as np
 
 from src.foresee import Model
 from src.utils.utility import ensure_model_layout, BREM_MASSES
-from src.utils.detectors import default_detectors
 import src.foresee as foresee_module
 
 

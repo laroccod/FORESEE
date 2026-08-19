@@ -1,6 +1,7 @@
 cd tests
 pytest test_Utility.py
 pytest test_Foresee.py
+pytest test_library.py
 
 cd DarkPhoton/
 pytest test_dark_photon.py

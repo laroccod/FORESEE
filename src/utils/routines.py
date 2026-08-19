@@ -60,6 +60,35 @@ def cache_spectra(foresee, masses, coupling=1, overwrite=False):
             foresee.get_llp_spectrum(mass=mass, coupling=coupling)
 
 
+def cached_masses(foresee):
+    """
+    List the masses whose LLP spectra are cached for the model's beam energy
+
+    Parameters
+    ----------
+    foresee: Foresee
+        The configured Foresee instance
+
+    Returns
+    -------
+        Sorted list of the masses found in the model's LLP_spectra directory
+    """
+    energy = str(next(iter(foresee.model.production.values()))["energy"])
+    stem = energy_stem(energy)
+    pattern = os.path.join(foresee.model.modelpath, "model", "LLP_spectra",
+                           f"{stem}_m_*.txt.gz")
+    masses = []
+    for path in glob.glob(pattern):
+        value = os.path.basename(path)[len(stem) + 3:-len(".txt.gz")]
+        try:
+            mass = float(value)
+        except ValueError:
+            continue
+        # keep the literal spelling so the spectrum filename still resolves
+        masses.append(int(mass) if str(int(mass)) == value else mass)
+    return sorted(masses)
+
+
 def gen_events(foresee, masses, couplings, labels, modes, detectors,
                preselectioncuts="np.sqrt(p**2 + mass**2) > 100", outdir=None):
     """
@@ -213,7 +242,7 @@ def get_presets(modelname):
                 f"no unique Models directory found for model '{modelname}'")
         directory = candidates[0]
     notebooks = [p for p in glob.glob(os.path.join(directory, "*.ipynb"))
-                 if os.path.basename(p) != "model.ipynb"]
+                 if os.path.basename(p) not in ("model.ipynb", "routines.ipynb")]
     if len(notebooks) != 1:
         raise RuntimeError(
             f"expected one research notebook in {directory}, found {len(notebooks)}")
